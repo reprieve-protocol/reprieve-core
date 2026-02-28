@@ -1,0 +1,40 @@
+{
+  "chainId": 421614,
+  "chainName": "Arbitrum Sepolia",
+  "rpcEnvVar": "ARBITRUM_SEPOLIA_RPC",
+  "deployerEnvVar": "ARBITRUM_SEPOLIA_DEPLOYER_KEY",
+  "contracts": {
+    "MockPriceOracle": "",
+    "MockERC20_Collateral": "",
+    "MockERC20_Debt": "",
+    "MockAavePool": "",
+    "MockAToken": "",
+    "MockCompoundComet": "",
+    "MockCToken": "",
+    "MockMorphoMarket": "",
+    "MockVaultShare": "",
+    "AaveLikeAdapter": "",
+    "CompoundLikeAdapter": "",
+    "MorphoLikeAdapter": ""
+  },
+  "riskParams": {
+    "maxLtvBps": 7500,
+    "liquidationThresholdBps": 8000,
+    "liquidationBonusBps": 500,
+    "borrowAprBps": 500
+  },
+  "tokenParams": {
+    "collateral": {
+      "name": "Wrapped Ether",
+      "symbol": "WETH",
+      "decimals": 18,
+      "initialPriceWad": "2000000000000000000000"
+    },
+    "debt": {
+      "name": "USD Coin",
+      "symbol": "USDC",
+      "decimals": 6,
+      "initialPriceWad": "1000000000000000000"
+    }
+  }
+}

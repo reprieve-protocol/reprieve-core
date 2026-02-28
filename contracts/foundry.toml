@@ -1,0 +1,24 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+# Remappings - override OpenZeppelin's config
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/contracts/"
+]
+
+# Solidity version override
+solc = "0.8.20"
+evm_version = "paris"
+
+# Optimizer settings
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+
+# Ignore nested foundry.toml files
+allow_paths = ["src", "lib/forge-std/src", "lib/openzeppelin-contracts/contracts"]
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

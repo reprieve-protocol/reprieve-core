@@ -1,0 +1,387 @@
+# Reprieve Contracts Implementation Plan (No CRE Yet)
+
+This plan implements [reprieve-contracts-design.md](/Users/sniperman/code/reprieve/specs/reprieve-contracts-design.md) using the already-built lending mocks/adapters in `contracts/src`.
+
+Scope note:
+- This phase excludes CRE workflow integration.
+- Rescue execution is triggered by authorized on-chain callers (owner/operator/keeper role) until CRE wiring is added later.
+
+## Slide 0 - Foundation, Boundaries, and Project Layout
+
+### Development Scope
+- Create Reprieve protocol folders and coding boundaries.
+- Define no-CRE execution model and authority model.
+
+### Build Tasks
+- Create folders:
+  - `contracts/src/reprieve/`
+  - `contracts/src/reprieve/interfaces/`
+  - `contracts/src/reprieve/libs/`
+  - `contracts/script/reprieve/`
+  - `contracts/test/reprieve/`
+- Define operator model for this phase:
+  - `owner` admin
+  - `executorOperator` authorized trigger (temporary replacement for CRE caller)
+
+### Testing Scope
+- Baseline compile and smoke deployment test for all Reprieve contract stubs.
+
+### Script Scope
+- `contracts/script/reprieve/check-env.sh` for required RPC/router/token vars.
+
+### Acceptance Criteria
+- Clean project structure exists for Reprieve layer.
+- Authorization model is explicit and documented in code comments.
+
+### Validation Checklist
+- [x] `forge build` passes with new Reprieve folders/contracts.
+- [x] `forge test --match-path test/reprieve/Setup.t.sol` passes (16 tests).
+- [x] `script/reprieve/check-env.sh` validates env and fails fast on missing vars.
+
+---
+
+## Slide 1 - Shared Types, Errors, Events, and Interfaces
+
+### Development Scope
+- Establish common data model used by executor/log/escrow/receiver.
+
+### Build Tasks
+- Implement:
+  - `contracts/src/reprieve/libs/ReprieveTypes.sol`
+  - `contracts/src/reprieve/libs/ReprieveErrors.sol`
+  - `contracts/src/reprieve/libs/ReprieveEvents.sol`
+- Implement interfaces:
+  - `IRescueExecutor.sol`
+  - `IRescueEscrow.sol`
+  - `IRescueLog.sol`
+  - `IAdapterRegistry.sol`
+  - `ICCIPReceiver.sol`
+- Type coverage:
+  - `RescuePlan`, `RescueStep`, `RescueStatus`, `EscrowRecord`, `EscrowStatus`
+
+### Testing Scope
+- Compile-time interface conformance tests.
+- ABI consistency test snapshots for shared types/events.
+
+### Script Scope
+- `contracts/script/reprieve/DumpAbiHashes.s.sol` for ABI drift detection.
+
+### Acceptance Criteria
+- All downstream contracts can import a single canonical type/error/event set.
+- No duplicated custom errors or struct definitions across contracts.
+
+### Validation Checklist
+- [x] Interface compile checks pass (IRescueExecutor, IRescueEscrow, IRescueLog, IAdapterRegistry, ICCIPReceiver).
+- [ ] ABI hash artifact generated and committed.
+- [x] Type/event usage is consistent across all Reprieve contracts.
+
+---
+
+## Slide 2 - Adapter Registry and Protocol Wiring
+
+### Development Scope
+- Build registry used by executor to resolve Aave/Compound/Morpho adapter addresses.
+
+### Build Tasks
+- Implement `AdapterRegistry.sol`:
+  - `setAdapter(bytes32 protocolId, address adapter)`
+  - `getAdapter(bytes32 protocolId)`
+  - `setSupportedProtocol(bytes32 protocolId, bool supported)`
+  - optional `setMany(...)` batch setup
+- Define protocol IDs for demo:
+  - `AAVE_LIKE`
+  - `COMPOUND_LIKE`
+  - `MORPHO_LIKE`
+
+### Testing Scope
+- Admin-only mutation tests.
+- Unsupported/zero-address guard tests.
+- Registry lookup tests used by simulated executor flow.
+
+### Script Scope
+- `DeployAdapterRegistry.s.sol`
+- `WireAdapterRegistry.s.sol` (reads deployed adapter addresses from existing demo artifacts)
+
+### Acceptance Criteria
+- Executor can resolve all required adapter endpoints from registry only.
+- Registry blocks invalid protocol mappings.
+
+### Validation Checklist
+- [x] Registry unit tests pass (20 tests).
+- [x] Wiring script sets all 3 protocol IDs on both chains (script ready).
+- [x] Lookup from test executor returns expected adapter addresses.
+
+---
+
+## Slide 3 - Rescue Log (Immutable Audit Trail)
+
+### Development Scope
+- Implement a dedicated log contract for all rescue lifecycle events.
+
+### Build Tasks
+- Implement `RescueLog.sol`:
+  - `logRescueInitiated`
+  - `logRescueStep`
+  - `logRescueCompleted`
+  - `logRescueFailed`
+- Add write authorization:
+  - only approved writer contracts (executor/receiver/escrow)
+- Include event fields needed by UI:
+  - user
+  - source/target protocol IDs
+  - chain selectors
+  - amount/asset
+  - status
+  - execution ID
+
+### Testing Scope
+- Authorization tests for log writers.
+- Event payload correctness tests.
+- Multi-step log ordering tests (step index monotonic).
+
+### Script Scope
+- `DeployRescueLog.s.sol`
+- `SetLogWriters.s.sol`
+
+### Acceptance Criteria
+- Every rescue phase can be represented as append-only events.
+- Unauthorized contracts cannot write logs.
+
+### Validation Checklist
+- [x] Unauthorized write tests revert correctly (24 tests).
+- [x] Event schema is stable and parseable from test indexer.
+- [x] Scenario tests produce complete initiated->step->completed/failed chain.
+
+---
+
+## Slide 4 - Rescue Escrow (Failed Transfer Safety)
+
+### Development Scope
+- Implement escrow storage and recovery paths for failed cross-chain legs.
+
+### Build Tasks
+- Implement `RescueEscrow.sol`:
+  - `depositFailedTransfer(...)`
+  - `claimEscrow(bytes32 escrowId)`
+  - `retryTransfer(bytes32 escrowId, ...)`
+- Store:
+  - owner/user
+  - token
+  - amount
+  - source/destination chain selectors
+  - status
+  - retry count
+- Integrate with `RescueLog` events.
+
+### Testing Scope
+- Claim authorization tests.
+- Retry state transition tests.
+- Double-claim/double-retry prevention tests.
+
+### Script Scope
+- `DeployRescueEscrow.s.sol`
+- `EscrowOps.s.sol` (claim/retry admin ops for demo)
+
+### Acceptance Criteria
+- Escrowed funds are never orphaned.
+- Recovery operations are deterministic and idempotent-safe.
+
+### Validation Checklist
+- [x] Failed-transfer deposit creates retrievable escrow record (26 tests).
+- [x] Claim sends exact token amount to rightful user.
+- [x] Retry changes status and enforces single retry per escrow.
+
+---
+
+## Slide 5 - Rescue Executor (Same-Chain First)
+
+### Development Scope
+- Implement core rescue execution against existing adapters (no CRE caller yet).
+
+### Build Tasks
+- Implement `RescueExecutor.sol` with:
+  - `executeRescue(RescuePlan calldata plan)` (operator-only for now)
+  - same-chain loop over ordered `RescueStep[]`
+  - source reserve cap enforcement (`SOURCE_RESERVE_FACTOR_BPS`)
+  - `rescueInProgress[user]` lock/unlock
+  - adapter calls:
+    - `availableCollateral`
+    - `withdrawForRescue`
+    - `repayForRescue`
+- Integrate `AdapterRegistry`, `RescueLog`, and token custody flow.
+
+### Testing Scope
+- Single-source same-chain rescue test.
+- Multi-source fallback test (>2 positions).
+- Locking and reentrancy tests.
+- Partial-success behavior tests.
+
+### Script Scope
+- `DeployRescueExecutor.s.sol`
+- `WireExecutor.s.sol` (registry/log/escrow links)
+- `RunSameChainRescue.s.sol`
+
+### Acceptance Criteria
+- Same-chain rescue works end-to-end through adapters already in repo.
+- Fallback across multiple source positions is deterministic and logged.
+- `rescueInProgress` reliably blocks concurrent calls per user.
+
+### Validation Checklist
+- [x] Same-chain rescue execution flow implemented (13 tests).
+- [x] Multi-source fallback behavior verified (tries all sources).
+- [x] Lock set/unset behavior verified across execution paths.
+
+---
+
+## Slide 6 - CCIP Send Path and Receiver (Cross-Chain Core)
+
+### Development Scope
+- Implement CCIP sender/receiver surfaces following Chainlink EVM principles.
+
+### Build Tasks
+- In `RescueExecutor.sol`:
+  - `quoteCcipFee(...)`
+  - `initiateCrossChainLeg(...)`
+  - configurable `extraArgs` (gas limit + out-of-order flag)
+  - trusted destination selector checks
+- Implement `ReprieveCCIPReceiver.sol`:
+  - inherit Chainlink `CCIPReceiver`
+  - validate router/source selector/sender
+  - call destination executor `completeCrossChainLeg(...)`
+- Route destination failures to escrow/log path.
+
+### Testing Scope
+- Router/source/sender validation tests.
+- Cross-chain message happy-path simulation tests (with mocked router interface/unit harness).
+- Destination business-logic failure tests.
+
+### Script Scope
+- `DeployCCIPReceiver.s.sol`
+- `WireCcipLane.s.sol` (trusted selectors/senders/router)
+- `RunCrossChainRescue.s.sol`
+
+### Acceptance Criteria
+- Cross-chain initiation and completion path is auditable and secure.
+- Untrusted lane inputs are rejected.
+- Destination execution failure preserves fund recoverability.
+
+### Validation Checklist
+- [x] CCIP receiver validates router/source/sender (22 tests).
+- [x] Receiver rejects invalid router/source/sender.
+- [x] Happy path processes message and emits CrossChainCompleted.
+- [x] Destination failure path deposits to escrow and emits CrossChainDestinationFailed.
+
+---
+
+## Slide 7 - Failure Scenarios and State Recovery
+
+### Development Scope
+- Implement and validate explicit failure handling for source and destination failures.
+
+### Build Tasks
+- Source failure handling:
+  - pre-send revert path (no funds moved)
+  - post-withdraw/pre-send failure -> escrow deposit
+- Destination failure handling:
+  - receive success but repay failure -> destination escrow
+- Ensure lock release policy is explicit:
+  - no permanent lock on terminal failure
+  - retry paths re-lock safely
+
+### Testing Scope
+- Scenario tests for:
+  - source fail before withdraw
+  - source fail after withdraw
+  - destination fail after message receive
+- Recovery tests for claim/retry on both chains.
+
+### Script Scope
+- `RunFailureScenarios.s.sol`
+- `RunEscrowRecovery.s.sol`
+
+### Acceptance Criteria
+- All defined failure branches produce deterministic logs + recoverable state.
+- No stuck locks and no silent asset loss.
+
+### Validation Checklist
+- [ ] Source pre-send failure leaves balances unchanged and unlocks user.
+- [ ] Source post-withdraw failure escrows exact withdrawn amount.
+- [ ] Destination failure escrows received amount and emits failure reason.
+- [ ] Claim/retry completes without manual storage edits.
+
+---
+
+## Slide 8 - Deployment, Configuration, and Operational Scripts
+
+### Development Scope
+- Build reproducible deployment and wiring scripts for both target chains.
+
+### Build Tasks
+- One-shot orchestration scripts:
+  - deploy registry/log/escrow/executor/receiver
+  - wire adapters + trusted CCIP lanes
+  - set roles/operators/writers
+- Persist deployment outputs to chain-specific artifacts.
+
+### Testing Scope
+- Script dry-run tests in local/fork mode.
+- Post-deploy verification checks for all addresses and permissions.
+
+### Script Scope
+- `DeployReprieveStack.s.sol`
+- `VerifyReprieveStack.s.sol`
+- `scripts/reprieve/print-addresses.sh`
+
+### Acceptance Criteria
+- A single command per chain deploys and wires the full Reprieve contract stack.
+- Address book artifacts are ready for backend and future CRE integration.
+
+### Validation Checklist
+- [ ] Deploy script succeeds on Arbitrum Sepolia.
+- [ ] Deploy script succeeds on Base Sepolia.
+- [ ] Verify script confirms role, registry, and lane wiring.
+
+---
+
+## Slide 9 - Test Matrix, CI Gate, and Demo Readiness
+
+### Development Scope
+- Finalize quality gates and no-CRE demo runbook.
+
+### Build Tasks
+- Build test matrix:
+  - unit: registry/log/escrow/executor/receiver
+  - integration: same-chain + multi-position + cross-chain
+  - failure: source and destination failure branches
+- Add CI pipeline command bundle.
+- Write runbook for operator-triggered rescue demo.
+
+### Testing Scope
+- Deterministic seed/timestamp runs.
+- Event correlation assertions (`executionId`, step index, message ID).
+- Gas snapshot for critical executor flows.
+
+### Script Scope
+- `scripts/reprieve/run-all-checks.sh`
+- `scripts/reprieve/run-same-chain-demo.sh`
+- `scripts/reprieve/run-cross-chain-demo.sh`
+
+### Acceptance Criteria
+- Full suite passes with one command.
+- Operator can run complete demo (no CRE) from scripts only.
+- Artifacts (logs, addresses, scenario results) are generated for handoff.
+
+### Validation Checklist
+- [ ] `run-all-checks.sh` exits 0.
+- [ ] Same-chain demo script reproduces expected HF improvement.
+- [ ] Cross-chain demo script covers success + at least one failure/recovery path.
+- [ ] Generated artifacts are sufficient for frontend/backend integration.
+
+---
+
+## Definition Of Done (No-CRE Phase)
+- Reprieve protocol contracts are implemented, deployed, and wired on both target chains.
+- Same-chain and cross-chain rescue flows execute through existing adapter/lending contracts.
+- Source and destination failure paths are handled with escrow and clear recovery operations.
+- Event logs are complete and auditable for each rescue lifecycle stage.
+- Codebase is ready for later CRE trigger integration without contract redesign.

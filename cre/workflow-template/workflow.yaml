@@ -1,0 +1,31 @@
+# ==========================================================================
+# Workflow Settings Template
+# ==========================================================================
+# 
+# 1. Copy this file to your workflow directory
+# 2. Update 'workflow-name' to a unique name
+# 3. Update paths if you rename the files
+
+local-simulation:
+  user-workflow:
+    workflow-name: "tapfun-workflow-template"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "../secrets.yaml"
+
+staging:
+  user-workflow:
+    workflow-name: "tapfun-workflow-template"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "../secrets.yaml"
+
+production:
+  user-workflow:
+    workflow-name: "tapfun-workflow-template"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "../secrets.yaml"
