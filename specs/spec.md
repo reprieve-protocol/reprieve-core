@@ -60,7 +60,7 @@
 - [ ]  Per-user CRE computes aggregate risk score when triggered by bot (customizable logic per strategy)
 - [ ]  Rescue triggers when aggregate HF < user threshold — priority queue determines protocol order
 - [ ]  Budget guard enforces per-rescue + per-day gas/spend cap
-- [ ]  CCIP cross-chain collateral rescue executes on Arbitrum Sepolia ↔ Base Sepolia
+- [ ]  CCIP cross-chain collateral rescue executes on Ethereum Sepolia ↔ Base Sepolia
 - [ ]  On-chain rescue log written for every rescue action (protocol, amount, chains, gas, timestamp)
 - [ ]  Per-user CRE: 1 workflow per user, bot-triggered, unified flow handles detection → rescue → logging
 - [ ]  Same-chain-first rescue logic in priority queue — CCIP only when no same-chain source available
@@ -83,7 +83,7 @@
 
 - **Repo:** *TBD*
 - **Stack:** `Chainlink CRE` · `Data Feeds` · `CCIP` · `EVM`
-- **Chains:** Arbitrum Sepolia · Base Sepolia
+- **Chains:** Ethereum Sepolia · Base Sepolia
 - **Protocols:** Aave V3/V4 · Compound V3 · Morpho V2 · **Dev scope:** mock adapters (demo) → real ABI adapters (mainnet)
 - **Key modules:** Health factor aggregator, Multi-signal trigger, Priority action queue (same-chain-first), Budget guard, Rescue executor, Rescue escrow
 - **CRE Contracts:** `HealthMonitor.sol` · `RescueExecutor.sol` · `RescueLog.sol` *(PriceWatcher removed — price checked inside CRE workflow, verifiable by DON)*

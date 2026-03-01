@@ -20,7 +20,7 @@ Build a demo-ready liquidation protection system (not a full portfolio manager) 
 - Rescue execution logic:
   - Same-chain-first source selection by priority queue.
   - Fall-through to next source if insufficient collateral.
-  - Cross-chain escalation via CCIP between Arbitrum Sepolia and Base Sepolia.
+  - Cross-chain escalation via CCIP between Ethereum Sepolia and Base Sepolia.
   - `RescueEscrow.sol` for failed CCIP transfers.
   - Cross-chain lock `rescueInProgress[user]` while transfer is in flight.
 - Guardrails and safety:
@@ -33,13 +33,13 @@ Build a demo-ready liquidation protection system (not a full portfolio manager) 
   - Immutable on-chain log for every rescue (protocol, amount, source/target chain, gas, timestamp).
   - History view and linkage to CRE execution proof.
 - Demo protocol layer:
-  - Implement and deploy local protocol-mimic contracts on each target chain (Arbitrum Sepolia and Base Sepolia) to emulate minimal Aave/Compound/Morpho behaviors required by Reprieve.
+  - Implement and deploy local protocol-mimic contracts on each target chain (Ethereum Sepolia and Base Sepolia) to emulate minimal Aave/Compound/Morpho behaviors required by Reprieve.
   - Adapters consume a common interface and point to mimic deployments in demo.
 
 ## Hard Constraints
 - Product scope: liquidation protection only.
 - Token scope: ERC20 position tokens only (aTokens, cTokens, vault shares); native token rescue is out of scope.
-- Chain scope: Arbitrum Sepolia and Base Sepolia for demo cross-chain path.
+- Chain scope: Ethereum Sepolia and Base Sepolia for demo cross-chain path.
 - Sepolia dependency constraint: do not rely on official Aave/Compound/Morpho Sepolia deployments for the core demo path.
 - Integration strategy: use self-deployed, minimal protocol-mimic contracts as authoritative protocol endpoints for demo.
 - Mock protocol economics must align with [demo-lending-merged.md](/Users/sniperman/code/reprieve/specs/demo-lending-merged.md): centralized owner-updated oracle, 75% max LTV, 80% liquidation threshold, fixed 5% APR, and permissionless liquidation path.

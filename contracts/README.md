@@ -64,3 +64,10 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+
+## Project Ops
+
+For this repo's deploy/run workflows, use:
+
+- `/Users/sniperman/code/reprieve/scripts/ops.sh`
+- `/Users/sniperman/code/reprieve/scripts/RUNBOOK.md`

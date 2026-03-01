@@ -1,6 +1,33 @@
 # Reprieve Demo Lending Implementation Plan
 
-This plan implements [demo-lending-merged.md](/Users/sniperman/code/reprieve/specs/demo-lending-merged.md) end-to-end for Arbitrum Sepolia and Base Sepolia.
+This plan implements [demo-lending-merged.md](/Users/sniperman/code/reprieve/specs/demo-lending-merged.md) end-to-end for Ethereum Sepolia and Base Sepolia.
+
+## Status Update (2026-03-01)
+
+### Verified Completed
+- Demo lending contracts are implemented:
+  - `MockERC20`, `MockPriceOracle`
+  - `BaseLendingEngine`
+  - `MockAavePool` + `MockAToken`
+  - `MockCompoundMarket` + `MockCToken`
+  - `MockMorphoMarket` + `MockVaultShare`
+  - `AaveLikeAdapter`, `CompoundLikeAdapter`, `MorphoLikeAdapter`
+- Demo scripts implemented:
+  - `DeployLendingStack.s.sol` (one-shot per-chain deploy)
+  - `DeployPrimitives.s.sol`, `SeedPrimitives.s.sol`, `SeedPositions.s.sol`
+  - `SetRiskParams.s.sol`, `DeployProtocols.s.sol`, `WireProtocols.s.sol`
+  - `DeployAdapters.s.sol`, `WireAdapters.s.sol`, `DumpAddresses.s.sol`, `check-env.sh`
+- Demo test suites pass in `forge test --summary`:
+  - `Setup`, `Primitives`, `LendingEngine`, `ProtocolMimics`, `Adapters`
+
+### Partially Completed / Remaining
+- End-to-end deploy+wire verification on both target chains remains to be completed in this repo state.
+- Chain-verified address artifact export and versioning is still pending.
+
+### Next Actions (Lending)
+1. Run deterministic full deploy+wire flow on Ethereum Sepolia and Base Sepolia.
+2. Export and version address artifacts for CRE and app consumption.
+3. Execute post-deploy sanity scripts and capture results for demo runbook.
 
 ## Slide 0 - Engineering Setup & Guardrails
 
@@ -73,7 +100,7 @@ This plan implements [demo-lending-merged.md](/Users/sniperman/code/reprieve/spe
 
 ### Validation Checklist
 - [x] Unit tests for `MockERC20` and `MockPriceOracle` pass.
-- [x] `forge script ...DeployPrimitives... --broadcast` succeeds on Arbitrum Sepolia (validated via compilation).
+- [x] `forge script ...DeployPrimitives... --broadcast` succeeds on Ethereum Sepolia (validated via compilation).
 - [x] `forge script ...DeployPrimitives... --broadcast` succeeds on Base Sepolia (validated via compilation).
 
 ---

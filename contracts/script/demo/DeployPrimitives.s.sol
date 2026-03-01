@@ -140,19 +140,19 @@ contract DeployPrimitives is Script {
     }
     
     /**
-     * @notice Run deployment for Arbitrum Sepolia
+     * @notice Run deployment for Ethereum Sepolia
      */
-    function runArbitrumSepolia() external {
+    function runEthereumSepolia() external {
         address deployer = vm.envAddress("DEPLOYER_ADDRESS");
         vm.startBroadcast(deployer);
         
         (MockERC20 collateral, MockERC20 debt, MockPriceOracle oracle) = 
-            deploy("config/arbitrum-sepolia.json", deployer);
+            deploy("config/ethereum-sepolia.json", deployer);
         
         vm.stopBroadcast();
         
         // Write deployed addresses back to config
-        writeAddresses("config/arbitrum-sepolia.json", collateral, debt, oracle);
+        writeAddresses("config/ethereum-sepolia.json", collateral, debt, oracle);
     }
     
     /**
@@ -172,7 +172,7 @@ contract DeployPrimitives is Script {
     }
     
     /**
-     * @notice Run deployment (generic - uses ARBITRUM_SEPOLIA_RPC by default)
+     * @notice Run deployment (generic - defaults to Ethereum Sepolia config)
      */
     function run() external {
         address deployer = msg.sender;
@@ -180,7 +180,7 @@ contract DeployPrimitives is Script {
         vm.startBroadcast();
         
         (MockERC20 collateral, MockERC20 debt, MockPriceOracle oracle) = 
-            deploy("config/arbitrum-sepolia.json", deployer);
+            deploy("config/ethereum-sepolia.json", deployer);
         
         vm.stopBroadcast();
         

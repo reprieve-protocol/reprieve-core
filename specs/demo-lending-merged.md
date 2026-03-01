@@ -1,7 +1,7 @@
 # Reprieve Demo Lending Spec (Merged)
 
 ## Goal
-Define a single, minimal lending-model specification for Sepolia demo protocol mimics used by Reprieve on Arbitrum Sepolia and Base Sepolia.
+Define a single, minimal lending-model specification for Sepolia demo protocol mimics used by Reprieve on Ethereum Sepolia and Base Sepolia.
 
 ## System Architecture
 
@@ -95,7 +95,7 @@ graph TD
 - No detailed Comet internals (indexes, absorb flow, rewards, or protocol-specific accounting).
 
 ## Deployment Matrix
-- Deploy full mock set to Arbitrum Sepolia.
+- Deploy full mock set to Ethereum Sepolia.
 - Deploy full mock set to Base Sepolia.
 - Seed deterministic user positions on both chains.
 - Persist addresses in chain-specific config for CRE + backend adapters.

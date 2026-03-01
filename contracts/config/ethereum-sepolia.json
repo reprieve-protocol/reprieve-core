@@ -1,8 +1,8 @@
 {
-  "chainId": 421614,
-  "chainName": "Arbitrum Sepolia",
-  "rpcEnvVar": "ARBITRUM_SEPOLIA_RPC",
-  "deployerEnvVar": "ARBITRUM_SEPOLIA_DEPLOYER_KEY",
+  "chainId": 11155111,
+  "chainName": "Ethereum Sepolia",
+  "rpcEnvVar": "ETHEREUM_SEPOLIA_RPC",
+  "deployerEnvVar": "ETHEREUM_SEPOLIA_DEPLOYER_KEY",
   "contracts": {
     "MockPriceOracle": "",
     "MockERC20_Collateral": "",

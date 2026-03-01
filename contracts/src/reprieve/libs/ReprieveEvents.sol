@@ -105,9 +105,27 @@ library ReprieveEvents {
     // Authorization events
     event WorkflowAuthorized(address indexed workflow, bool allowed);
     event WriterAuthorized(address indexed writer, bool allowed);
+    event ReporterAuthorized(address indexed reporter, bool allowed);
     event OperatorSet(address indexed operator);
     event ExecutorSet(address executor);
     event RouterSet(address router);
+
+    // Health monitoring events
+    event HealthSnapshotRecorded(
+        address indexed user,
+        uint256 aggregateHf,
+        uint256 timestamp,
+        bytes32 indexed execId,
+        address indexed reporter
+    );
+    
+    event UrgentRescue(
+        address indexed user,
+        uint256 prevHf,
+        uint256 newHf,
+        uint256 dropBps,
+        address indexed reporter
+    );
     
     // CCIP config events
     event CcipExtraArgsSet(uint64 indexed chainSelector, bytes extraArgs);

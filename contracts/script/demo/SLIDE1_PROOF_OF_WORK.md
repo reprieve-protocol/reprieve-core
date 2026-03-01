@@ -150,7 +150,7 @@ Suite result: ok. 34 passed; 0 failed; 0 skipped
 - Deploys collateral token, debt token, and oracle
 - Sets initial prices from config
 - Writes deployed addresses back to config
-- Supports Arbitrum Sepolia and Base Sepolia
+- Supports Ethereum Sepolia and Base Sepolia
 
 #### `SeedPrimitives.s.sol`
 - Mints initial balances to test actors

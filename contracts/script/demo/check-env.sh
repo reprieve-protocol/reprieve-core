@@ -38,19 +38,19 @@ echo ""
 echo "Checking Environment Variables:"
 echo "--------------------------------"
 
-# Arbitrum Sepolia
-if [ -z "$ARBITRUM_SEPOLIA_RPC" ]; then
-    echo -e "  ARBITRUM_SEPOLIA_RPC: ${RED}NOT SET${NC}"
+# Ethereum Sepolia
+if [ -z "$ETHEREUM_SEPOLIA_RPC" ]; then
+    echo -e "  ETHEREUM_SEPOLIA_RPC: ${RED}NOT SET${NC}"
     ((ERRORS++))
 else
-    echo -e "  ARBITRUM_SEPOLIA_RPC: ${GREEN}SET${NC}"
+    echo -e "  ETHEREUM_SEPOLIA_RPC: ${GREEN}SET${NC}"
 fi
 
-if [ -z "$ARBITRUM_SEPOLIA_DEPLOYER_KEY" ]; then
-    echo -e "  ARBITRUM_SEPOLIA_DEPLOYER_KEY: ${YELLOW}NOT SET${NC} (will use default anvil key)"
+if [ -z "$ETHEREUM_SEPOLIA_DEPLOYER_KEY" ]; then
+    echo -e "  ETHEREUM_SEPOLIA_DEPLOYER_KEY: ${YELLOW}NOT SET${NC} (will use default anvil key)"
     ((WARNINGS++))
 else
-    echo -e "  ARBITRUM_SEPOLIA_DEPLOYER_KEY: ${GREEN}SET${NC}"
+    echo -e "  ETHEREUM_SEPOLIA_DEPLOYER_KEY: ${GREEN}SET${NC}"
 fi
 
 # Base Sepolia
@@ -74,14 +74,14 @@ echo ""
 echo "Testing RPC Connections:"
 echo "-----------------------"
 
-if [ -n "$ARBITRUM_SEPOLIA_RPC" ]; then
-    echo -n "  Arbitrum Sepolia RPC... "
-    if cast chain-id --rpc-url "$ARBITRUM_SEPOLIA_RPC" &> /dev/null; then
-        CHAIN_ID=$(cast chain-id --rpc-url "$ARBITRUM_SEPOLIA_RPC")
-        if [ "$CHAIN_ID" == "421614" ]; then
+if [ -n "$ETHEREUM_SEPOLIA_RPC" ]; then
+    echo -n "  Ethereum Sepolia RPC... "
+    if cast chain-id --rpc-url "$ETHEREUM_SEPOLIA_RPC" &> /dev/null; then
+        CHAIN_ID=$(cast chain-id --rpc-url "$ETHEREUM_SEPOLIA_RPC")
+        if [ "$CHAIN_ID" == "11155111" ]; then
             echo -e "${GREEN}OK${NC} (chainId: $CHAIN_ID)"
         else
-            echo -e "${YELLOW}WRONG CHAIN${NC} (expected: 421614, got: $CHAIN_ID)"
+            echo -e "${YELLOW}WRONG CHAIN${NC} (expected: 11155111, got: $CHAIN_ID)"
             ((WARNINGS++))
         fi
     else
@@ -113,7 +113,7 @@ echo "Checking Config Files:"
 echo "---------------------"
 
 CONFIG_FILES=(
-    "config/arbitrum-sepolia.json"
+    "config/ethereum-sepolia.json"
     "config/base-sepolia.json"
 )
 

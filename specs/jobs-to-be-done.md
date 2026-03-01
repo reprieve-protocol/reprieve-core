@@ -66,7 +66,7 @@
 **Success criteria:**
 
 - [ ]  Same-chain-first rescue via priority queue (highest HF source first = safest to withdraw from)
-- [ ]  CCIP cross-chain rescue as escalation when no same-chain source available (Arbitrum Sepolia ↔ Base Sepolia)
+- [ ]  CCIP cross-chain rescue as escalation when no same-chain source available (Ethereum Sepolia ↔ Base Sepolia)
 - [ ]  Tenderly pre-simulation before execution — best-effort: abort with clear reason on fail
 - [ ]  Budget guard enforces per-rescue cap (0.05 ETH) + daily cap (0.2 ETH)
 - [ ]  Recovery buffer: rescue aims to bring HF to threshold × 1.10 (e.g., 1.30 → 1.43)
@@ -261,7 +261,7 @@ sequenceDiagram
 | 3.2 | Priority queue built: same-chain sources first, ordered by highest HF (safest) | Max 5 protocols in queue; fall-through if #1 insufficient |
 | 3.3 | Tenderly pre-simulates the rescue tx | Best-effort: execute on pass, abort with reason on fail |
 | 3.4 | RescueExecutor withdraws collateral from source → repays debt on target | Source reserve: never withdraw >80% of source's available collateral |
-| 3.5 | If cross-chain needed: CCIP bridges collateral (Arbitrum Sepolia ↔ Base Sepolia) | Cross-chain lock: `rescueInProgress[user]` blocks concurrent rescues |
+| 3.5 | If cross-chain needed: CCIP bridges collateral (Ethereum Sepolia ↔ Base Sepolia) | Cross-chain lock: `rescueInProgress[user]` blocks concurrent rescues |
 | 3.6 | If CCIP fails: RescueEscrow holds funds on source chain | User can claim or protocol retries; 1 retry default |
 | 3.7 | Rescue aims to bring HF to threshold × 1.10 (recovery buffer) | e.g., threshold 1.30 → target HF 1.43 |
 | 3.8 | On-chain rescue log written: protocol, amount, chains, gas, timestamp | Immutable audit trail via RescueLog.sol |
@@ -379,7 +379,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **CRE** | Per-user workflow | Unified detect → rescue → log · Stores config + budget · Verifiable by DON · Hybrid compute (on-chain + off-chain quant) |
 | **Data Feeds** | Inside CRE workflow | Price data for HF computation + rescue decisions · Verifiable by DON |
-| **CCIP** | Rescue stage | Cross-chain collateral transfer (Arbitrum Sepolia ↔ Base Sepolia) · Escalation when no same-chain source |
+| **CCIP** | Rescue stage | Cross-chain collateral transfer (Ethereum Sepolia ↔ Base Sepolia) · Escalation when no same-chain source |
 
 ---
 

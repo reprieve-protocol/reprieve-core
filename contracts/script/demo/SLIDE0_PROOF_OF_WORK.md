@@ -58,15 +58,15 @@ contracts/
 
 ### 4. Config Files Created
 
-#### `config/arbitrum-sepolia.json`
-- Chain ID: 421614
+#### `config/ethereum-sepolia.json`
+- Chain ID: 11155111
 - Risk params: 75% LTV, 80% LT, 5% APR, 5% liquidation bonus
 - Token params: WETH collateral (18 decimals), USDC debt (6 decimals)
 - Initial WETH price: $2000 (WAD precision)
 
 #### `config/base-sepolia.json`
 - Chain ID: 84532
-- Same risk params as Arbitrum Sepolia
+- Same risk params as Ethereum Sepolia
 
 ### 5. Test Suite (`test/demo/Setup.t.sol`)
 
@@ -103,7 +103,7 @@ Ran 15 tests for test/demo/Setup.t.sol:SetupTest
 
 Validates:
 - Foundry installation
-- Environment variables (ARBITRUM_SEPOLIA_RPC, BASE_SEPOLIA_RPC, deployer keys)
+- Environment variables (ETHEREUM_SEPOLIA_RPC, BASE_SEPOLIA_RPC, deployer keys)
 - RPC endpoint connectivity and chain IDs
 - Config file existence
 - Folder structure
@@ -137,7 +137,7 @@ cd contracts && forge test -v
 - `contracts/src/interfaces/IDemoOracle.sol`
 - `contracts/src/interfaces/IReprieveAdapter.sol`
 - `contracts/src/libs/DemoConstants.sol`
-- `contracts/config/arbitrum-sepolia.json`
+- `contracts/config/ethereum-sepolia.json`
 - `contracts/config/base-sepolia.json`
 - `contracts/test/demo/Setup.t.sol`
 - `contracts/script/demo/check-env.sh`

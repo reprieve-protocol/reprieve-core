@@ -23,7 +23,7 @@ check_env() {
 }
 
 echo "Checking RPC endpoints..."
-check_env "ARBITRUM_SEPOLIA_RPC"
+check_env "ETHEREUM_SEPOLIA_RPC"
 check_env "BASE_SEPOLIA_RPC"
 
 echo ""
@@ -32,12 +32,12 @@ check_env "PRIVATE_KEY"
 
 echo ""
 echo "Checking CCIP Router addresses..."
-check_env "ARBITRUM_SEPOLIA_CCIP_ROUTER"
+check_env "ETHEREUM_SEPOLIA_CCIP_ROUTER"
 check_env "BASE_SEPOLIA_CCIP_ROUTER"
 
 echo ""
 echo "Checking LINK token addresses..."
-check_env "ARBITRUM_SEPOLIA_LINK"
+check_env "ETHEREUM_SEPOLIA_LINK"
 check_env "BASE_SEPOLIA_LINK"
 
 echo ""
