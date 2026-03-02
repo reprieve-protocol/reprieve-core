@@ -514,24 +514,31 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
 
         // Approve target adapter to spend tokens
         IERC20(asset).approve(targetAdapter, amount);
-        
+
+        bool actionSuccess;
         if (mode == ReprieveTypes.RescueMode.TOP_UP) {
             try IReprieveAdapter(targetAdapter).supplyForRescue(user, asset, amount) {
-                return true;
+                actionSuccess = true;
             } catch {
-                return false;
+                actionSuccess = false;
             }
         }
-
-        if (mode == ReprieveTypes.RescueMode.REPAY) {
+        else if (mode == ReprieveTypes.RescueMode.REPAY) {
             try IReprieveAdapter(targetAdapter).repayForRescue(user, asset, amount) {
-                return true;
+                actionSuccess = true;
             } catch {
-                return false;
+                actionSuccess = false;
             }
+        } else {
+            actionSuccess = false;
         }
 
-        return false;
+        if (!actionSuccess) {
+            // Return funds to CCIPReceiver so it can escrow failed cross-chain transfers.
+            IERC20(asset).safeTransfer(fundingSource, amount);
+        }
+
+        return actionSuccess;
     }
     
     /**

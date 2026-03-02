@@ -87,7 +87,7 @@ What it does:
 ### D. Relay mock CCIP message across two real testnets
 
 ```bash
-./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id>
+./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia latest
 ```
 
 What it does:
@@ -95,6 +95,7 @@ What it does:
 - Exports message data/token fields to `contracts/config/mock-relay-<sourceChainId>.env`.
 - Broadcasts destination-chain relay tx via `RelayExternalMockMessage`.
 - Calls destination router `deliverExternalMessage(...)`, which mints destination token to receiver and calls `ccipReceive`.
+- `latest` auto-resolves the true on-chain `MessageSent` id from `contracts/broadcast/CrossChainRescueExecute.s.sol/<chainId>/run-latest.json` (avoids simulated trace id mismatch).
 
 ### E. Full deploy on one chain (lending + reprieve)
 
@@ -121,18 +122,20 @@ Notes:
 - In same-chain `REPAY` mode, the script deploys a temporary reversed source Aave-like pool/adapter (`debt` as source collateral) so withdrawn source asset can repay target debt directly.
 - Optional repay setup knobs: `REPAY_SOURCE_DEBT_MINT`, `REPAY_SOURCE_SUPPLY_DEBT`, `REPAY_SOURCE_ENGINE_LIQ_COLLATERAL`.
 
-Cross-chain leg (CCIP flow):
+Cross-chain leg (CCIP flow, split phases):
 ```bash
-./scripts/ops.sh cross-chain-demo ethereum-sepolia
+RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-setup-source ethereum-sepolia
+RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-setup-destination base-sepolia
+RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-execute ethereum-sepolia
+./scripts/ops.sh cross-chain-rescue-relay ethereum-sepolia base-sepolia <message-id>
 ```
 Notes:
-- `DEST_RECEIVER` auto-resolves from opposite-chain `reprieve-stack-<chainId>.json` artifact when available.
-- `SOURCE_SENDER` auto-resolves to source chain `RescueExecutor`.
-- `TARGET_ADAPTER` defaults to opposite-chain `CompoundLikeAdapter` from config.
-- `MOCK_BRIDGE_SOURCE_TOKEN` defaults to source `COLLATERAL_ASSET`.
-- `MOCK_BRIDGE_DEST_TOKEN` defaults by mode:
-  - `TOP_UP`: opposite-chain collateral token
-  - `REPAY`: opposite-chain debt token
+- `cross-chain-rescue-setup-destination` writes `contracts/config/cross-chain-rescue-destination-<chainId>.json`.
+- `cross-chain-rescue-execute` auto-loads opposite-chain target adapter + rescue debt asset from that artifact.
+- In `REPAY` mode, destination setup deploys an opposite (hedging) target market/adapter, then `execute` repays that destination debt asset.
+- `cross-chain-rescue-relay` is an alias of `mock-relay`.
+- You can pass `latest` instead of a manual id:
+  `./scripts/ops.sh cross-chain-rescue-relay ethereum-sepolia base-sepolia latest`
 
 Hedging-oriented repay example:
 - Configure `RESCUE_MODE=REPAY`.
@@ -178,7 +181,11 @@ Run build/tests/check scripts:
 - Same-chain scenario:
   - `contracts/script/reprieve/RunSameChainRescue.s.sol`
 - Cross-chain scenario:
-  - `contracts/script/reprieve/RunCrossChainRescue.s.sol`
+  - `contracts/script/reprieve/RunCrossChainRescue.s.sol` (legacy one-shot)
+  - `contracts/script/reprieve/CrossChainRescueSetupSource.s.sol` (phase 1)
+  - `contracts/script/reprieve/CrossChainRescueSetupDestination.s.sol` (phase 2)
+  - `contracts/script/reprieve/CrossChainRescueExecute.s.sol` (phase 3)
+  - `contracts/script/reprieve/RelayExternalMockMessage.s.sol` (phase 4)
 - Lane wiring:
   - `contracts/script/reprieve/WireCcipLane.s.sol`
 - Failure + escrow recovery:
@@ -194,5 +201,7 @@ Run build/tests/check scripts:
 5. `./scripts/ops.sh ccip-wire-source ethereum-sepolia`
 6. `./scripts/ops.sh ccip-wire-dest base-sepolia`
 7. `./scripts/ops.sh same-chain-demo ethereum-sepolia`
-8. `./scripts/ops.sh cross-chain-demo ethereum-sepolia`
-9. `./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id>`
+8. `RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-setup-source ethereum-sepolia`
+9. `RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-setup-destination base-sepolia`
+10. `RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-rescue-execute ethereum-sepolia`
+11. `./scripts/ops.sh cross-chain-rescue-relay ethereum-sepolia base-sepolia latest`

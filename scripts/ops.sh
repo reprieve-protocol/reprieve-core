@@ -15,7 +15,11 @@ Usage:
 Commands:
   lending-deploy <ethereum-sepolia|base-sepolia>
   mock-router-deploy <ethereum-sepolia|base-sepolia>
-  mock-relay <source-chain> <destination-chain> <message-id>
+  mock-relay <source-chain> <destination-chain> [message-id|latest]
+  cross-chain-rescue-setup-source <ethereum-sepolia|base-sepolia>
+  cross-chain-rescue-setup-destination <ethereum-sepolia|base-sepolia>
+  cross-chain-rescue-execute <ethereum-sepolia|base-sepolia>
+  cross-chain-rescue-relay <source-chain> <destination-chain> [message-id|latest]
   reprieve-deploy <ethereum-sepolia|base-sepolia>
   full-deploy <ethereum-sepolia|base-sepolia>
   ccip-wire-source <ethereum-sepolia|base-sepolia>
@@ -49,6 +53,23 @@ selector_for_chain_id() {
     84532) echo "10344971235874465080" ;;    # Base Sepolia selector
     *) echo "" ;;
   esac
+}
+
+resolve_latest_mock_message_id() {
+  local chain_id="$1"
+  local broadcast_file="$CONTRACTS_DIR/broadcast/CrossChainRescueExecute.s.sol/${chain_id}/run-latest.json"
+  local message_sent_topic0="0x6d5ba46f25f47bd5afde9be3a22d0edab6520e9398be746f60677eb206032f41"
+  if [ ! -f "$broadcast_file" ]; then
+    echo ""
+    return
+  fi
+  jq -r --arg t0 "$message_sent_topic0" '
+    [
+      .receipts[]?.logs[]?
+      | select((.topics[0] | ascii_downcase) == ($t0 | ascii_downcase))
+      | .topics[1]
+    ] | last // empty
+  ' "$broadcast_file"
 }
 
 set_chain() {
@@ -148,16 +169,19 @@ case "$cmd" in
     export SOURCE_CHAIN_SELECTOR="${SOURCE_CHAIN_SELECTOR:-$(selector_for_chain_id "$CHAIN_ID")}"
     run_forge_script "script/reprieve/DeployMockCCIPRouter.s.sol:DeployMockCCIPRouter"
     ;;
-  mock-relay)
+  mock-relay|cross-chain-rescue-relay)
     source_chain="$arg2"
     dest_chain="$arg3"
-    message_id="$arg4"
-    if [ -z "$source_chain" ] || [ -z "$dest_chain" ] || [ -z "$message_id" ]; then
-      echo "mock-relay requires <source-chain> <destination-chain> <message-id>."
+    message_id="${arg4:-latest}"
+    if [ -z "$source_chain" ] || [ -z "$dest_chain" ]; then
+      echo "mock-relay requires <source-chain> <destination-chain> [message-id|latest]."
       usage
       exit 1
     fi
 
+    unset RPC_URL
+    unset PRIVATE_KEY
+    unset CCIP_ROUTER
     set_chain "$source_chain"
     source_chain_id="$CHAIN_ID"
     source_selector="$(selector_for_chain_id "$CHAIN_ID")"
@@ -165,6 +189,15 @@ case "$cmd" in
     if [ -z "${source_router:-}" ]; then
       echo "Missing source CCIP router for $source_chain (set chain router env first)."
       exit 1
+    fi
+    if [ "$message_id" = "latest" ]; then
+      message_id="$(resolve_latest_mock_message_id "$source_chain_id")"
+      if [ -z "$message_id" ] || [ "$message_id" = "null" ]; then
+        echo "Could not resolve latest message id from source broadcast artifact."
+        echo "Run cross-chain-rescue-execute first or pass an explicit <message-id>."
+        exit 1
+      fi
+      echo "Resolved latest source message id: $message_id"
     fi
 
     export_file="$CONTRACTS_DIR/config/mock-relay-${source_chain_id}.env"
@@ -180,7 +213,9 @@ case "$cmd" in
       exit 1
     fi
     # shellcheck disable=SC1090
+    set -a
     source "$export_file"
+    set +a
     if [ -z "${MOCK_SOURCE_SELECTOR:-}" ] || [ -z "${MOCK_DEST_RECEIVER:-}" ] || [ -z "${MOCK_PAYLOAD:-}" ]; then
       echo "Export file missing required relay fields."
       exit 1
@@ -201,6 +236,45 @@ case "$cmd" in
 
     echo "Relaying message on destination chain $dest_chain..."
     run_forge_script "script/reprieve/RelayExternalMockMessage.s.sol:RelayExternalMockMessage"
+    ;;
+  cross-chain-rescue-setup-source)
+    set_chain "$chain"
+    load_lending_addresses_from_config
+    load_reprieve_addresses_from_artifact
+    export SOURCE_EXECUTOR="${SOURCE_EXECUTOR:-$RESCUE_EXECUTOR}"
+    export SOURCE_AAVE_POOL="${SOURCE_AAVE_POOL:-$AAVE_POOL}"
+    export SOURCE_AAVE_ADAPTER="${SOURCE_AAVE_ADAPTER:-$AAVE_ADAPTER}"
+    run_forge_script "script/reprieve/CrossChainRescueSetupSource.s.sol:CrossChainRescueSetupSource"
+    ;;
+  cross-chain-rescue-setup-destination)
+    set_chain "$chain"
+    load_lending_addresses_from_config
+    run_forge_script "script/reprieve/CrossChainRescueSetupDestination.s.sol:CrossChainRescueSetupDestination"
+    ;;
+  cross-chain-rescue-execute)
+    set_chain "$chain"
+    load_lending_addresses_from_config
+    load_reprieve_addresses_from_artifact
+    opposite_artifact="$CONTRACTS_DIR/config/reprieve-stack-${OPPOSITE_CHAIN_ID}.json"
+    opposite_config="$OPPOSITE_CONFIG_PATH"
+    cross_dest_artifact="$CONTRACTS_DIR/config/cross-chain-rescue-destination-${OPPOSITE_CHAIN_ID}.json"
+    export RESCUE_MODE="${RESCUE_MODE:-TOP_UP}"
+    export SOURCE_CHAIN_SELECTOR="$(selector_for_chain_id "$CHAIN_ID")"
+    export DEST_CHAIN_SELECTOR="$(selector_for_chain_id "$OPPOSITE_CHAIN_ID")"
+    export DEST_RECEIVER="${DEST_RECEIVER:-$(json_get_string "$opposite_artifact" "CCIPReceiver")}"
+    export SOURCE_EXECUTOR="${SOURCE_EXECUTOR:-$RESCUE_EXECUTOR}"
+    export SOURCE_AAVE_POOL="${SOURCE_AAVE_POOL:-$AAVE_POOL}"
+    export SOURCE_AAVE_ADAPTER="${SOURCE_AAVE_ADAPTER:-$AAVE_ADAPTER}"
+    export TARGET_ADAPTER="${TARGET_ADAPTER:-$(json_get_string "$cross_dest_artifact" "targetAdapter")}"
+    export TARGET_ADAPTER="${TARGET_ADAPTER:-$(json_get_string "$opposite_config" "CompoundLikeAdapter")}"
+    export TARGET_ADAPTER="${TARGET_ADAPTER:-$COMPOUND_ADAPTER}"
+    export RESCUE_DEBT_ASSET="${RESCUE_DEBT_ASSET:-$(json_get_string "$cross_dest_artifact" "rescueDebtAsset")}"
+    export RESCUE_DEBT_ASSET="${RESCUE_DEBT_ASSET:-$DEBT_ASSET}"
+    if [ -z "${DEST_RECEIVER:-}" ] || [ -z "${TARGET_ADAPTER:-}" ]; then
+      echo "cross-chain-rescue-execute requires DEST_RECEIVER and TARGET_ADAPTER (env/artifact)."
+      exit 1
+    fi
+    run_forge_script "script/reprieve/CrossChainRescueExecute.s.sol:CrossChainRescueExecute"
     ;;
   reprieve-deploy)
     set_chain "$chain"

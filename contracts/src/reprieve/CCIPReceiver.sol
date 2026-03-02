@@ -245,14 +245,15 @@ contract CCIPReceiver is Ownable, ReentrancyGuard {
         // Approve executor to spend tokens
         IERC20(tokenAmount.token).approve(address(executor), tokenAmount.amount);
         
-        // Call executor to complete cross-chain leg
+        // Use the actually delivered destination token/amount for execution.
+        // Payload asset address may be source-chain token and can differ cross-chain.
         return executor.completeCrossChainLeg(
             rescueMessage.execId,
             rescueMessage.user,
             rescueMessage.targetAdapter,
             rescueMessage.mode,
-            rescueMessage.asset,
-            rescueMessage.amount
+            tokenAmount.token,
+            tokenAmount.amount
         );
     }
     

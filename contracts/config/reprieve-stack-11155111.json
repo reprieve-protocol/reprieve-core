@@ -1,15 +1,1 @@
-{
-    "chainId": 11155111,
-    "contracts": {
-        "AdapterRegistry": "0xB2a5F67c0Ef01250Eed084562CaB9021FDFb741D",
-        "RescueLog": "0x320b6485911041A97053f8C331642AaA10DdB36E",
-        "RescueEscrow": "0x5352671CB337085649fc99896aC5f9bd1F8CAB2C",
-        "RescueExecutor": "0x3AE4c0ecA24C8Edb3231B14BEd8Df57559036858",
-        "CCIPReceiver": "0xeD3B74c284A993459785B69e2fca212bCba034e4",
-        "HealthMonitor": "0x6BF9bdFfb5D4fd4AACaCaB24ee77141Bc597b54b"
-    },
-    "wiring": {
-        "workflow": "0x28b94B571f8F3FEB444075B65054FFba4e10D49a",
-        "ccipRouter": "0x980D89A60A75482BeDe9BB592e34a8A197200b89"
-    }
-}
+{"chainId":11155111,"contracts":{"AdapterRegistry":"0x1f0e34d584E163f278fB8F232B8a3c2dB5118eB7","RescueLog":"0xD990d952E82784e61852b8D4d465CB40C08F4B7d","RescueEscrow":"0xFf02A2B7f4Db490fEB98Fbbb72d610FDe8f58CBD","RescueExecutor":"0xd2ade981e8db77250DE58ee241529143435E234F","CCIPReceiver":"0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB","HealthMonitor":"0xf9C134C4939252d62CaCb199F59e63961f8bE260"},"wiring":{"workflow":"0x28b94B571f8F3FEB444075B65054FFba4e10D49a","ccipRouter":"0xf8Ca6FCf3916D689F2158073806333f1FFB9e87e"}}
