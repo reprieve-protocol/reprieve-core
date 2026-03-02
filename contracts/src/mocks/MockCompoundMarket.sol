@@ -57,6 +57,19 @@ contract MockCompoundMarket {
         emit Mint(msg.sender, amount, amount);
     }
 
+    /**
+     * @notice Mint collateral position on behalf of a target user.
+     * @dev Rescue top-up path for adapter-driven supply.
+     */
+    function mintFor(address onBehalfOf, address asset, uint256 amount) external {
+        require(onBehalfOf != address(0), "Invalid beneficiary");
+        require(asset == collateral, "Invalid collateral");
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        engine.supply(asset, amount, onBehalfOf);
+        cToken.mint(amount);
+        emit Mint(onBehalfOf, amount, amount);
+    }
+
     function redeem(address asset, uint256 cTokens) external {
         require(asset == collateral, "Invalid collateral");
         cToken.redeem(cTokens);

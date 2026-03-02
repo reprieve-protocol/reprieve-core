@@ -18,7 +18,7 @@ import {CCIPClient, ICCIPRouter} from "./libs/CCIPClient.sol";
 /**
  * @title RescueExecutor
  * @notice Main execution contract for rescue actions
- * @dev Executes same-chain-first withdraw/repay via adapters
+ * @dev Executes same-chain-first withdraw + mode-based target action via adapters
  * @dev Initiates CCIP cross-chain rescue when same-chain source is insufficient
  */
 contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
@@ -180,27 +180,29 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
         
         bool anyStepSucceeded = false;
         uint256 lastCompletedStep = 0;
+        string memory modeLabel = _modeToString(plan.mode);
         
         // Execute each step
         for (uint256 i = 0; i < plan.steps.length; i++) {
             ReprieveTypes.RescueStep memory step = plan.steps[i];
+            _validateStepForMode(step, plan.mode);
             
             // Log step start
             rescueLog.logRescueStep(
                 plan.execId, 
                 i, 
                 plan.user, 
-                string.concat("Step ", _uintToString(i), " started")
+                string.concat("Step ", _uintToString(i), " started [mode=", modeLabel, "]")
             );
             
             bool stepSuccess;
             
             if (step.isCrossChain) {
                 // Cross-chain step
-                stepSuccess = _initiateCrossChainStep(step, plan.user, plan.execId);
+                stepSuccess = _initiateCrossChainStep(step, plan.user, plan.execId, plan.mode);
             } else {
                 // Same-chain step
-                stepSuccess = _executeSameChainStep(step, plan.user, plan.execId);
+                stepSuccess = _executeSameChainStep(step, plan.user, plan.execId, plan.mode);
             }
             
             if (stepSuccess) {
@@ -212,7 +214,7 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
                     plan.execId,
                     i,
                     plan.user,
-                    string.concat("Step ", _uintToString(i), " completed")
+                    string.concat("Step ", _uintToString(i), " completed [mode=", modeLabel, "]")
                 );
                 
                 emit ReprieveEvents.RescueStepCompleted(
@@ -229,7 +231,7 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
                     plan.execId,
                     i,
                     plan.user,
-                    string.concat("Step ", _uintToString(i), " failed")
+                    string.concat("Step ", _uintToString(i), " failed [mode=", modeLabel, "]")
                 );
                 
                 // Continue to next source if available (fallback behavior)
@@ -291,9 +293,10 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
     function executeSameChainLeg(
         ReprieveTypes.RescueStep calldata step,
         address user,
-        bytes32 execId
+        bytes32 execId,
+        ReprieveTypes.RescueMode mode
     ) external override onlyAuthorizedWorkflow returns (bool success) {
-        return _executeSameChainStep(step, user, execId);
+        return _executeSameChainStep(step, user, execId, mode);
     }
     
     /**
@@ -302,11 +305,12 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
      * @param receiver Receiver contract on destination
      * @param user User being rescued
      * @param execId Execution ID
+     * @param mode Rescue mode (`TOP_UP` or `REPAY`)
      * @param collateralAsset Collateral token to transfer
      * @param collateralAmount Amount to transfer
      * @param targetAdapter Target adapter on destination
-     * @param debtAsset Debt asset to repay
-     * @param debtAmount Amount to repay
+     * @param _debtAsset Debt asset for `REPAY` mode
+     * @param _debtAmount Debt amount for `REPAY` mode
      * @param stepIndex Step index
      * @param feeToken Fee token (address(0) for native)
      * @return messageId CCIP message ID
@@ -316,24 +320,28 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
         address receiver,
         address user,
         bytes32 execId,
+        ReprieveTypes.RescueMode mode,
         address collateralAsset,
         uint256 collateralAmount,
         address targetAdapter,
-        address debtAsset,
-        uint256 debtAmount,
+        address _debtAsset,
+        uint256 _debtAmount,
         uint256 stepIndex,
         address feeToken
     ) external onlyAuthorizedWorkflow returns (bytes32 messageId) {
+        _debtAsset;
+        _debtAmount;
         messageId = _sendCCIPMessage(
             destinationChainSelector,
             receiver,
             user,
             execId,
+            mode,
             collateralAsset,
             collateralAmount,
             targetAdapter,
-            debtAsset,
-            debtAmount,
+            mode == ReprieveTypes.RescueMode.TOP_UP ? collateralAsset : _debtAsset,
+            mode == ReprieveTypes.RescueMode.TOP_UP ? collateralAmount : _debtAmount,
             stepIndex,
             feeToken
         );
@@ -347,11 +355,12 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
         address receiver,
         address user,
         bytes32 execId,
-        address collateralAsset,
-        uint256 collateralAmount,
+        ReprieveTypes.RescueMode mode,
+        address transferAsset,
+        uint256 transferAmount,
         address targetAdapter,
-        address debtAsset,
-        uint256 debtAmount,
+        address actionAsset,
+        uint256 actionAmount,
         uint256 stepIndex,
         address feeToken
     ) internal returns (bytes32 messageId) {
@@ -369,9 +378,10 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: execId,
             user: user,
+            mode: mode,
             targetAdapter: targetAdapter,
-            asset: debtAsset,
-            amount: debtAmount,
+            asset: actionAsset,
+            amount: actionAmount,
             timestamp: block.timestamp,
             deadline: block.timestamp + 1 hours
         });
@@ -379,8 +389,8 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
         // Build token amounts
         CCIPClient.EVMTokenAmount[] memory tokenAmounts = new CCIPClient.EVMTokenAmount[](1);
         tokenAmounts[0] = CCIPClient.EVMTokenAmount({
-            token: collateralAsset,
-            amount: collateralAmount
+            token: transferAsset,
+            amount: transferAmount
         });
         
         // Get extra args
@@ -416,8 +426,8 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             IERC20(feeToken).approve(ccipRouter, fee);
         }
         
-        // Approve collateral token for router
-        IERC20(collateralAsset).approve(ccipRouter, collateralAmount);
+        // Approve transfer token for router
+        IERC20(transferAsset).approve(ccipRouter, transferAmount);
         
         // Send via CCIP
         if (feeToken == address(0)) {
@@ -436,7 +446,12 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             execId,
             stepIndex,
             user,
-            string.concat("Cross-chain initiated: ", _bytes32ToString(messageId))
+            string.concat(
+                "Cross-chain initiated [mode=",
+                _modeToString(mode),
+                "]: ",
+                _bytes32ToString(messageId)
+            )
         );
         
         emit ReprieveEvents.CrossChainInitiated(
@@ -454,21 +469,26 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
      * @param execId Execution ID
      * @param user User being rescued
      * @param targetAdapter Target adapter address
-     * @param asset Asset to repay
-     * @param amount Amount to repay
+     * @param mode Rescue mode
+     * @param asset Action asset
+     * @param amount Action amount
      * @return success True if completion succeeded
      */
     function completeCrossChainLeg(
         bytes32 execId,
         address user,
         address targetAdapter,
+        ReprieveTypes.RescueMode mode,
         address asset,
         uint256 amount
     ) external override returns (bool success) {
         // Only CCIPReceiver can call this
         // This will be enforced by checking msg.sender against stored receiver
-        
-        try this._processCrossChainRepay(execId, user, targetAdapter, asset, amount) returns (bool result) {
+
+        address fundingSource = msg.sender;
+        try this._processCrossChainActionFrom(fundingSource, execId, user, targetAdapter, mode, asset, amount)
+            returns (bool result)
+        {
             return result;
         } catch {
             return false;
@@ -476,25 +496,42 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @notice Process cross-chain repay (internal)
+     * @notice Process cross-chain action completion (internal)
      */
-    function _processCrossChainRepay(
+    function _processCrossChainActionFrom(
+        address fundingSource,
         bytes32 execId,
         address user,
         address targetAdapter,
+        ReprieveTypes.RescueMode mode,
         address asset,
         uint256 amount
     ) external returns (bool) {
         require(msg.sender == address(this), "Only self");
-        
+        execId;
+
+        IERC20(asset).safeTransferFrom(fundingSource, address(this), amount);
+
         // Approve target adapter to spend tokens
         IERC20(asset).approve(targetAdapter, amount);
         
-        try IReprieveAdapter(targetAdapter).repayForRescue(user, asset, amount) {
-            return true;
-        } catch {
-            return false;
+        if (mode == ReprieveTypes.RescueMode.TOP_UP) {
+            try IReprieveAdapter(targetAdapter).supplyForRescue(user, asset, amount) {
+                return true;
+            } catch {
+                return false;
+            }
         }
+
+        if (mode == ReprieveTypes.RescueMode.REPAY) {
+            try IReprieveAdapter(targetAdapter).repayForRescue(user, asset, amount) {
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        return false;
     }
     
     /**
@@ -548,8 +585,22 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
     function _executeSameChainStep(
         ReprieveTypes.RescueStep memory step,
         address user,
-        bytes32 execId
+        bytes32 execId,
+        ReprieveTypes.RescueMode mode
     ) internal returns (bool) {
+        if (mode == ReprieveTypes.RescueMode.REPAY) {
+            if (step.collateralAsset != step.debtAsset) {
+                return false;
+            }
+            if (step.debtAmount == 0 || step.collateralAmount == 0) {
+                return false;
+            }
+
+            uint256 alignedAmount = step.debtAmount < step.collateralAmount ? step.debtAmount : step.collateralAmount;
+            step.debtAmount = alignedAmount;
+            step.collateralAmount = alignedAmount;
+        }
+
         // Get source adapter
         IReprieveAdapter sourceAdapter = IReprieveAdapter(step.sourceAdapter);
         
@@ -561,6 +612,9 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             // Insufficient collateral, try with what's available
             if (maxWithdrawable == 0) return false;
             step.collateralAmount = maxWithdrawable;
+            if (mode == ReprieveTypes.RescueMode.REPAY && step.debtAmount > step.collateralAmount) {
+                step.debtAmount = step.collateralAmount;
+            }
         }
         
         // Withdraw from source - use try/catch for granular error handling
@@ -575,43 +629,57 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             return false;
         }
         
-        // Withdraw succeeded - attempt repay
-        bool repaySuccess = this._executeRepay(step, user, execId);
+        // Withdraw succeeded - attempt destination mode action
+        bool actionSuccess = this._executeTargetAction(step, user, mode);
         
-        if (!repaySuccess) {
-            // Post-withdraw failure - escrow the withdrawn funds
+        if (!actionSuccess) {
+            // Post-withdraw failure - escrow withdrawn funds
             _escrowWithdrawnFunds(step, user, execId);
         }
         
-        return repaySuccess;
+        return actionSuccess;
     }
     
     /**
-     * @notice Execute repay portion of same-chain step (external for try/catch)
+     * @notice Execute target action portion of same-chain step (external for try/catch)
      */
-    function _executeRepay(
+    function _executeTargetAction(
         ReprieveTypes.RescueStep memory step,
         address user,
-        bytes32 execId
+        ReprieveTypes.RescueMode mode
     ) external returns (bool) {
         require(msg.sender == address(this), "Only self");
         
         // Get target adapter
         IReprieveAdapter targetAdapter = IReprieveAdapter(step.targetAdapter);
-        
-        // Approve debt token for repayment
-        IERC20(step.debtAsset).approve(step.targetAdapter, step.debtAmount);
-        
-        // Repay at target
-        try targetAdapter.repayForRescue(user, step.debtAsset, step.debtAmount) {
-            return true;
-        } catch {
-            return false;
+
+        if (mode == ReprieveTypes.RescueMode.TOP_UP) {
+            // Approve collateral token for top-up
+            IERC20(step.collateralAsset).approve(step.targetAdapter, step.collateralAmount);
+
+            try targetAdapter.supplyForRescue(user, step.collateralAsset, step.collateralAmount) {
+                return true;
+            } catch {
+                return false;
+            }
         }
+
+        if (mode == ReprieveTypes.RescueMode.REPAY) {
+            // Approve debt token for repay
+            IERC20(step.debtAsset).approve(step.targetAdapter, step.debtAmount);
+
+            try targetAdapter.repayForRescue(user, step.debtAsset, step.debtAmount) {
+                return true;
+            } catch {
+                return false;
+            }
+        }
+
+        return false;
     }
     
     /**
-     * @notice Escrow withdrawn funds when repay fails
+     * @notice Escrow withdrawn funds when top-up fails
      */
     function _escrowWithdrawnFunds(
         ReprieveTypes.RescueStep memory step,
@@ -658,11 +726,18 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
     function _initiateCrossChainStep(
         ReprieveTypes.RescueStep memory step,
         address user,
-        bytes32 execId
+        bytes32 execId,
+        ReprieveTypes.RescueMode mode
     ) internal returns (bool) {
         // Get receiver for target chain
         address receiver = chainReceivers[step.targetChain];
         if (receiver == address(0)) {
+            return false;
+        }
+
+        address actionAsset = mode == ReprieveTypes.RescueMode.TOP_UP ? step.collateralAsset : step.debtAsset;
+        uint256 actionAmount = mode == ReprieveTypes.RescueMode.TOP_UP ? step.collateralAmount : step.debtAmount;
+        if (actionAsset == address(0) || actionAmount == 0) {
             return false;
         }
         
@@ -673,18 +748,60 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             receiver,
             user,
             execId,
+            mode,
             step.collateralAsset,
             step.collateralAmount,
             step.targetAdapter,
-            step.debtAsset,
-            step.debtAmount,
+            actionAsset,
+            actionAmount,
             step.stepIndex,
             address(0) // Use native token for fees
         );
         return true;
     }
+
+    function _validateStepForMode(
+        ReprieveTypes.RescueStep memory step,
+        ReprieveTypes.RescueMode mode
+    ) internal pure {
+        if (step.sourceAdapter == address(0) || step.targetAdapter == address(0)) {
+            revert ReprieveErrors.InvalidRescuePlan("Invalid adapter");
+        }
+
+        if (mode == ReprieveTypes.RescueMode.TOP_UP) {
+            if (step.collateralAsset == address(0) || step.collateralAmount == 0) {
+                revert ReprieveErrors.InvalidRescuePlan("Invalid top-up params");
+            }
+            return;
+        }
+
+        if (mode == ReprieveTypes.RescueMode.REPAY) {
+            if (step.debtAsset == address(0) || step.debtAmount == 0) {
+                revert ReprieveErrors.InvalidRescuePlan("Invalid repay params");
+            }
+            if (step.collateralAsset == address(0) || step.collateralAmount == 0) {
+                revert ReprieveErrors.InvalidRescuePlan("Invalid repay source");
+            }
+            if (!step.isCrossChain && step.collateralAsset != step.debtAsset) {
+                revert ReprieveErrors.InvalidRescuePlan("Same-chain repay requires same asset");
+            }
+            return;
+        }
+
+        revert ReprieveErrors.InvalidRescuePlan("Invalid mode");
+    }
     
     // ============ Utility Functions ============
+
+    function _modeToString(ReprieveTypes.RescueMode mode) internal pure returns (string memory) {
+        if (mode == ReprieveTypes.RescueMode.TOP_UP) {
+            return "TOP_UP";
+        }
+        if (mode == ReprieveTypes.RescueMode.REPAY) {
+            return "REPAY";
+        }
+        return "UNKNOWN";
+    }
     
     function _uintToString(uint256 value) internal pure returns (string memory) {
         if (value == 0) return "0";

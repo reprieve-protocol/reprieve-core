@@ -63,6 +63,7 @@ contract SetupTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: keccak256("test"),
             user: address(5),
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -94,6 +95,7 @@ contract SetupTest is Test {
         ReprieveTypes.CCIPMessage memory message = ReprieveTypes.CCIPMessage({
             execId: keccak256("exec"),
             user: address(1),
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(2),
             asset: address(3),
             amount: 1000,

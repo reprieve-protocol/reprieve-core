@@ -1,40 +1,40 @@
 {
-  "chainId": 11155111,
-  "chainName": "Ethereum Sepolia",
-  "rpcEnvVar": "ETHEREUM_SEPOLIA_RPC",
-  "deployerEnvVar": "ETHEREUM_SEPOLIA_DEPLOYER_KEY",
-  "contracts": {
-    "MockPriceOracle": "",
-    "MockERC20_Collateral": "",
-    "MockERC20_Debt": "",
-    "MockAavePool": "",
-    "MockAToken": "",
-    "MockCompoundComet": "",
-    "MockCToken": "",
-    "MockMorphoMarket": "",
-    "MockVaultShare": "",
-    "AaveLikeAdapter": "",
-    "CompoundLikeAdapter": "",
-    "MorphoLikeAdapter": ""
-  },
-  "riskParams": {
-    "maxLtvBps": 7500,
-    "liquidationThresholdBps": 8000,
-    "liquidationBonusBps": 500,
-    "borrowAprBps": 500
-  },
-  "tokenParams": {
-    "collateral": {
-      "name": "Wrapped Ether",
-      "symbol": "WETH",
-      "decimals": 18,
-      "initialPriceWad": "2000000000000000000000"
+    "chainId": 11155111,
+    "chainName": "Ethereum Sepolia",
+    "rpcEnvVar": "ETHEREUM_SEPOLIA_RPC",
+    "deployerEnvVar": "ETHEREUM_SEPOLIA_DEPLOYER_KEY",
+    "contracts": {
+        "MockPriceOracle": "0x050fd8A93569733fa104cA1950D12F2aDCC4c92C",
+        "MockERC20_Collateral": "0x638a584054072539756D30c8549933d718e59f13",
+        "MockERC20_Debt": "0x20b76B6f56DD8416f2EDDa88ff3dC9b40Cb7b6B5",
+        "MockAavePool": "0x0387451516820ba7d5b8133dF2afe27A4A772B94",
+        "MockAToken": "0x31d7556da53820C049A1123071a4C5DCb6D50Ce9",
+        "MockCompoundComet": "0x5049cfa7d6523743C5Ca16eFfBe12B2f47cdE530",
+        "MockCToken": "0xAa05e029d917c5C941e7Cd33c165Dc5C6C07b917",
+        "MockMorphoMarket": "0xC19797Eb931c330A4adAe58da96576724b272212",
+        "MockVaultShare": "0x37372B8E65AB765276046534DAF2398daD0BB28C",
+        "AaveLikeAdapter": "0x86717BB71A88c3BA4FBb106C35439c85d905cCd5",
+        "CompoundLikeAdapter": "0xAE39156C5FCBAB6E5CfaBbdaDD3207aCd2BAdeac",
+        "MorphoLikeAdapter": "0x1067ddE23497caB4631d60dc77ff1e9e7E4974C5"
     },
-    "debt": {
-      "name": "USD Coin",
-      "symbol": "USDC",
-      "decimals": 6,
-      "initialPriceWad": "1000000000000000000"
+    "riskParams": {
+        "maxLtvBps": 7500,
+        "liquidationThresholdBps": 8000,
+        "liquidationBonusBps": 500,
+        "borrowAprBps": 500
+    },
+    "tokenParams": {
+        "collateral": {
+            "name": "Wrapped Ether",
+            "symbol": "WETH",
+            "decimals": 18,
+            "initialPriceWad": "2000000000000000000000"
+        },
+        "debt": {
+            "name": "USD Coin",
+            "symbol": "USDC",
+            "decimals": 6,
+            "initialPriceWad": "1000000000000000000"
+        }
     }
-  }
 }

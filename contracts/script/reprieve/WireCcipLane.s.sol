@@ -5,6 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {RescueExecutor} from "../../src/reprieve/RescueExecutor.sol";
 import {CCIPReceiver} from "../../src/reprieve/CCIPReceiver.sol";
 import {CCIPClient} from "../../src/reprieve/libs/CCIPClient.sol";
+import {MockCCIPRouter} from "../../src/mocks/MockCCIPRouter.sol";
+import {MockERC20} from "../../src/mocks/MockERC20.sol";
 
 /**
  * @title WireCcipLane
@@ -31,10 +33,16 @@ contract WireCcipLane is Script {
 
         address sourceExecutorAddr = vm.envAddress("SOURCE_EXECUTOR");
         address sourceRouter = vm.envOr("SOURCE_ROUTER", vm.envOr("CCIP_ROUTER", address(0)));
+        uint64 sourceSelector = uint64(vm.envOr("SOURCE_CHAIN_SELECTOR", uint256(0)));
         uint64 destSelector = uint64(vm.envUint("DEST_CHAIN_SELECTOR"));
         address destReceiver = vm.envAddress("DEST_RECEIVER");
         uint256 gasLimit = vm.envOr("CCIP_GAS_LIMIT", uint256(300_000));
         bool allowOutOfOrder = vm.envOr("CCIP_ALLOW_OUT_OF_ORDER", true);
+        bool configureMockRouter = vm.envOr("CONFIGURE_MOCK_ROUTER", false);
+        address defaultBridgeSource = vm.envOr("COLLATERAL_ASSET", address(0));
+        address bridgeSourceToken = vm.envOr("MOCK_BRIDGE_SOURCE_TOKEN", defaultBridgeSource);
+        address bridgeDestinationToken = vm.envOr("MOCK_BRIDGE_DEST_TOKEN", bridgeSourceToken);
+        uint256 bridgeAdminPk = vm.envOr("BRIDGE_ADMIN_PRIVATE_KEY", ownerPk);
 
         RescueExecutor sourceExecutor = RescueExecutor(payable(sourceExecutorAddr));
 
@@ -47,11 +55,29 @@ contract WireCcipLane is Script {
         vm.startBroadcast(ownerPk);
         if (sourceRouter != address(0)) {
             sourceExecutor.setCcipRouter(sourceRouter);
+            if (configureMockRouter) {
+                require(sourceSelector != 0, "WireCcipLane: SOURCE_CHAIN_SELECTOR required");
+                require(bridgeSourceToken != address(0), "WireCcipLane: MOCK_BRIDGE_SOURCE_TOKEN required");
+                require(bridgeDestinationToken != address(0), "WireCcipLane: MOCK_BRIDGE_DEST_TOKEN required");
+                MockCCIPRouter mockRouter = MockCCIPRouter(sourceRouter);
+                mockRouter.setCurrentChainSelector(sourceSelector);
+                mockRouter.setLane(sourceSelector, destSelector, true);
+                mockRouter.setTokenMapping(destSelector, bridgeSourceToken, bridgeDestinationToken);
+                mockRouter.setReceiver(destSelector, destReceiver);
+            }
         }
         sourceExecutor.setTrustedDestinationChain(destSelector, true);
         sourceExecutor.setChainReceiver(destSelector, destReceiver);
         sourceExecutor.setCcipExtraArgs(destSelector, CCIPClient.buildExtraArgs(gasLimit, allowOutOfOrder));
         vm.stopBroadcast();
+
+        if (configureMockRouter) {
+            vm.startBroadcast(bridgeAdminPk);
+            MockERC20(bridgeSourceToken).setBridgeBurner(sourceRouter, true);
+            MockERC20(bridgeDestinationToken).setBridgeMinter(sourceRouter, true);
+            MockERC20(bridgeDestinationToken).setBridgeBurner(sourceRouter, true);
+            vm.stopBroadcast();
+        }
 
         console.log("SOURCE lane wired.");
     }

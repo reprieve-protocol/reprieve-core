@@ -26,7 +26,7 @@ Implementation requirements:
 ### 1) `RescueExecutor.sol`
 Purpose:
 - Main execution contract for rescue actions.
-- Executes same-chain-first withdraw/repay via adapters.
+- Executes same-chain-first withdraw + target action via adapters, where target action is mode-based (`TOP_UP` or `REPAY`).
 - Initiates CCIP escalation when same-chain source is insufficient.
 - Enforces cross-chain lock `rescueInProgress[user]`.
 
@@ -125,6 +125,7 @@ Purpose:
 Expected types:
 - `RescuePlan`
 - `RescueStep`
+- `RescueMode` (`TOP_UP`, `REPAY`)
 - `RescueStatus`
 - `EscrowStatus`
 
@@ -212,9 +213,12 @@ This section maps Reprieve contracts to currently implemented lending contracts 
 - Same-chain withdraw leg:
   - Reprieve executor calls `withdrawForRescue(user, collateralAsset, amount, to)` on source adapter.
   - Adapter calls market-specific withdraw/redeem path.
+- Same-chain top-up leg:
+  - Reprieve executor calls `supplyForRescue(user, collateralAsset, amount)` on target adapter.
+  - Adapter pulls collateral token from executor and supplies collateral on-behalf-of the user in target market.
 - Same-chain repay leg:
   - Reprieve executor calls `repayForRescue(user, debtAsset, amount)` on target adapter.
-  - Adapter pulls debt token from executor and repays on-behalf-of the user in target market.
+  - Adapter pulls debt token from executor and repays debt on-behalf-of the user in target market.
 
 ### Compatibility Requirements To Lock
 - For reliable rescue integration, each market must expose a callable withdraw path compatible with its adapter:
@@ -226,7 +230,43 @@ This section maps Reprieve contracts to currently implemented lending contracts 
 
 ---
 
-## H) Scenario Design: Reprieve <-> Lending Interactions
+## H) Execution Mode Model (Plan-Level Constraint)
+
+`RescuePlan` must carry a single mode:
+- `TOP_UP`: rescue by adding collateral to the target position.
+- `REPAY`: rescue by reducing target debt exposure.
+
+Hard rule (required):
+- One `executeRescue` call uses exactly one mode for all its steps.
+- Mixed mode steps inside the same execution are invalid and must revert.
+
+Field interpretation by mode:
+- `TOP_UP`
+  - Uses `collateralAsset` + `collateralAmount` for target action.
+  - Calls `supplyForRescue`.
+  - `debtAsset/debtAmount` are ignored legacy fields.
+- `REPAY`
+  - Uses `debtAsset` + `debtAmount` for target action.
+  - Calls `repayForRescue`.
+  - `collateralAsset/collateralAmount` remain source-withdraw fields.
+
+Token-conversion boundary (important for demo correctness):
+- No DEX/swap inside executor.
+- If withdrawn source asset cannot satisfy target action asset, step must fail and follow existing escrow/failure handling.
+- Cross-chain relies on configured token mapping (CCIP mock/prod lane). Mapping mismatch must fail deterministically and route to recoverable path.
+
+Hedging scenario mapping (your example):
+- `REPAY` mode.
+- WETH-dump branch:
+  - withdraw USDC from source leg that has lend-USDC,
+  - repay USDC debt on target leg that has borrow-USDC.
+- WETH-pump branch:
+  - withdraw WETH from source leg that has lend-WETH,
+  - repay WETH debt on target leg that has borrow-WETH.
+
+---
+
+## I) Scenario Design: Reprieve <-> Lending Interactions
 
 ### Scenario 1: Same-Chain Rescue (Single Source -> Single Target)
 
@@ -241,13 +281,15 @@ Flow:
 3. Executor selects source and target adapters from `AdapterRegistry`.
 4. Executor calls source `availableCollateral(user, collateralAsset)` and caps amount by reserve rule (max 80% withdraw).
 5. Executor calls source `withdrawForRescue(user, collateralAsset, amount, address(this))`.
-6. Executor calls target `repayForRescue(user, debtAsset, repayAmount)`.
+6. Executor dispatches target action by plan mode:
+  - `TOP_UP`: `supplyForRescue(user, collateralAsset, collateralAmount)`
+  - `REPAY`: `repayForRescue(user, debtAsset, debtAmount)`
 7. Executor records each leg in `RescueLog`.
 8. Executor clears lock and emits completion.
 
 Success criteria:
-- Target debt decreases.
-- Target HF increases toward configured recovery buffer.
+- `TOP_UP`: target collateral increases and HF improves.
+- `REPAY`: target debt decreases and HF improves.
 - Logs include source protocol, target protocol, amount, user, and execution id.
 
 ### Scenario 2: Same-Chain Rescue Involving More Than 2 Positions
@@ -260,8 +302,8 @@ Flow:
 2. Executor iterates sources:
   - reads `availableCollateral`.
   - withdraws partial/full amount from source.
-  - repays target debt.
-3. If source #1 is insufficient, executor falls through to #2, then #3, until target repay requirement is met or queue exhausted.
+  - executes target action based on plan mode (`TOP_UP` or `REPAY`).
+3. If source #1 is insufficient, executor falls through to #2, then #3, until target top-up requirement is met or queue exhausted.
 4. Executor writes per-leg logs with `stepIndex`.
 5. Executor finalizes with success (fully recovered) or partial-success (improved but below target buffer).
 
@@ -281,19 +323,22 @@ Flow:
 1. Source `RescueExecutor` locks `rescueInProgress[user]`.
 2. Source executor withdraws from source adapter into executor custody.
 3. Source executor builds `EVM2AnyMessage` with:
-  - `tokenAmounts` carrying rescue collateral token amount
-  - `data` carrying routing payload (user, target adapter key, debt asset, repay amount, execution id, step index)
+  - `tokenAmounts` carrying action token amount (mode-dependent)
+  - `data` carrying routing payload including mode + target asset/amount + execution context
   - lane-configured `extraArgs`
   Then quotes fee with `getFee`.
 4. Source executor sends message via router and logs `CrossChainInitiated`.
 5. Destination `CCIPReceiver` validates router + source chain + sender.
 6. Destination receiver calls destination executor `completeCrossChainLeg(...)`.
-7. Destination executor approves target adapter and calls `repayForRescue(user, debtAsset, amount)`.
+7. Destination executor approves target adapter and dispatches by mode:
+  - `TOP_UP`: `supplyForRescue(...)`
+  - `REPAY`: `repayForRescue(...)`
 8. Destination executor logs completion and clears lock state for user on destination-side rescue state.
 9. Source-side workflow records completed status (via event indexing / off-chain workflow step).
 
 Success criteria:
-- Debt reduced on destination target position.
+- `TOP_UP`: destination collateral increased on target position.
+- `REPAY`: destination debt reduced on target position.
 - CCIP message id linked in `RescueLog`.
 - User lock is not left stuck.
 - Both token transfer and payload decoding are validated in tests.
@@ -323,17 +368,17 @@ Success criteria:
 ### Scenario 5: Cross-Chain Failure On Destination Chain
 
 Definition:
-- CCIP message arrives, but destination business action fails (for example target adapter repay revert).
+- CCIP message arrives, but destination business action fails (for example target adapter top-up/repay revert).
 
 Flow:
 1. Destination receiver validates router/source/sender.
 2. Receiver invokes destination completion with `try/catch` style handling.
-3. If repay fails:
+3. If completion fails:
   - move received funds to destination `RescueEscrow` (or hold in receiver escrow mode).
   - emit `CrossChainDestinationFailed` with reason + escrow id.
   - mark user state as recoverable/retriable, avoiding permanent lock.
 4. Retry path:
-  - protocol retries repay with corrected parameters, or user claims escrowed funds.
+  - protocol retries completion with corrected parameters, or user claims escrowed funds.
 
 Success criteria:
 - Message receipt is auditable even when business logic fails.
@@ -342,12 +387,15 @@ Success criteria:
 
 ---
 
-## I) Validation Checklist For Interaction Scenarios
+## J) Validation Checklist For Interaction Scenarios
 
-- [ ] Same-chain single-source rescue test: withdraw then repay improves HF.
-- [ ] Same-chain multi-source test: at least 3 positions, fallback from source #1 to #2 works.
-- [ ] Cross-chain success test: message id emitted, destination repay succeeds, lock cleared.
+- [ ] Same-chain TOP_UP single-source rescue test: withdraw then collateral top-up improves HF.
+- [ ] Same-chain REPAY single-source rescue test: withdraw compatible asset then debt repay improves HF.
+- [ ] Same-chain multi-source test: at least 3 positions, fallback from source #1 to #2 works in one selected mode.
+- [ ] Cross-chain TOP_UP success test: message id emitted, destination top-up succeeds, lock cleared.
+- [ ] Cross-chain REPAY success test: message id emitted, destination repay succeeds, lock cleared.
 - [ ] Cross-chain source-fail test: failure before send does not trap funds or lock.
 - [ ] Cross-chain source-fail-after-withdraw test: escrow deposit occurs and is claimable/retriable.
 - [ ] Cross-chain destination-fail test: receiver path records failure and funds are recoverable.
+- [ ] Mixed-mode-in-one-plan test: execution reverts.
 - [ ] Event correlation test: every scenario produces `RescueLog` entries with execution id and step index.

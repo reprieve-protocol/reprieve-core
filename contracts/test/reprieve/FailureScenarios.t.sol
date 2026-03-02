@@ -119,6 +119,7 @@ contract FailureScenariosTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -176,6 +177,7 @@ contract FailureScenariosTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -225,6 +227,7 @@ contract FailureScenariosTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -322,7 +325,7 @@ contract FailureScenariosTest is Test {
         return ReprieveTypes.RescueStep({
             stepIndex: 0,
             sourceAdapter: address(aaveAdapter),
-            targetAdapter: address(0), // Will cause repay to fail
+            targetAdapter: address(compoundAdapter),
             collateralAsset: address(collateral),
             debtAsset: address(debt),
             collateralAmount: 5 ether,
@@ -344,6 +347,10 @@ contract FailingAdapter is IReprieveAdapter {
     
     function repayForRescue(address, address, uint256) external pure {
         revert("Repay always fails");
+    }
+
+    function supplyForRescue(address, address, uint256) external pure {
+        revert("Supply always fails");
     }
     
     function availableCollateral(address, address) external pure returns (uint256) {

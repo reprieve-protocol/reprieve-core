@@ -207,6 +207,7 @@ contract CCIPReceiverTest is Test {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(0),
             asset: address(token),
             amount: 1000 ether,
@@ -252,6 +253,7 @@ contract CCIPReceiverTest is Test {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(0),
             asset: address(token),
             amount: 1000 ether,
@@ -290,6 +292,7 @@ contract CCIPReceiverTest is Test {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(0),
             asset: address(token),
             amount: 1000 ether,
@@ -335,6 +338,7 @@ contract CCIPReceiverTest is Test {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(0),
             asset: address(token),
             amount: 1000 ether,
@@ -418,6 +422,7 @@ contract CCIPReceiverTest is Test {
         ReprieveTypes.CCIPMessage memory rescueMessage = ReprieveTypes.CCIPMessage({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             targetAdapter: address(0),
             asset: address(token),
             amount: amount,

@@ -139,4 +139,29 @@ contract AaveLikeAdapter is BaseAdapter {
         
         emit DebtRepaid(user, asset, amount);
     }
+
+    function supplyForRescue(address user, address asset, uint256 amount)
+        external
+        override
+        whenNotPaused
+    {
+        if (amount == 0) revert ZeroAmount();
+        if (asset != collateralAsset) revert UnsupportedAsset();
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(asset).approve(protocol, amount);
+
+        (bool success, ) = protocol.call(
+            abi.encodeWithSignature(
+                "supply(address,uint256,address,uint16)",
+                asset,
+                amount,
+                user,
+                uint16(0)
+            )
+        );
+        if (!success) revert RepayFailed();
+
+        emit CollateralSupplied(user, asset, amount);
+    }
 }

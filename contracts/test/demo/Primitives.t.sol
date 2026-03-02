@@ -26,6 +26,11 @@ contract PrimitivesTest is Test {
     event Mint(address indexed to, uint256 amount);
     event Burn(address indexed from, uint256 amount);
     event MinterUpdated(address indexed newMinter);
+    event AdminUpdated(address indexed newAdmin);
+    event BridgeBurnerSet(address indexed account, bool allowed);
+    event BridgeMinterSet(address indexed account, bool allowed);
+    event BridgeBurn(address indexed burner, address indexed from, uint256 amount);
+    event BridgeMint(address indexed minter, address indexed to, uint256 amount);
     event PriceUpdated(address indexed asset, uint256 price, uint256 timestamp);
     event PriceSet(
         address indexed asset,
@@ -155,6 +160,71 @@ contract PrimitivesTest is Test {
         vm.prank(minter);
         vm.expectRevert("MockERC20: caller is not minter");
         collateralToken.mint(user1, 100 ether);
+    }
+
+    function test_ERC20_SetAdmin() public {
+        address newAdmin = makeAddr("newAdmin");
+
+        vm.prank(minter);
+        vm.expectEmit(true, false, false, false);
+        emit AdminUpdated(newAdmin);
+        collateralToken.setAdmin(newAdmin);
+
+        assertEq(collateralToken.admin(), newAdmin);
+    }
+
+    function test_ERC20_SetBridgeRoles_OnlyAdmin() public {
+        vm.prank(user1);
+        vm.expectRevert("MockERC20: caller is not admin");
+        collateralToken.setBridgeBurner(user2, true);
+
+        vm.prank(user1);
+        vm.expectRevert("MockERC20: caller is not admin");
+        collateralToken.setBridgeMinter(user2, true);
+    }
+
+    function test_ERC20_BridgeBurnAndMint() public {
+        address bridge = makeAddr("bridge");
+
+        vm.prank(minter);
+        collateralToken.setBridgeBurner(bridge, true);
+        vm.prank(minter);
+        collateralToken.setBridgeMinter(bridge, true);
+
+        vm.prank(minter);
+        collateralToken.mint(user1, 100 ether);
+        assertEq(collateralToken.totalSupply(), 100 ether);
+
+        vm.prank(bridge);
+        vm.expectEmit(true, true, false, true);
+        emit BridgeBurn(bridge, user1, 30 ether);
+        collateralToken.bridgeBurn(user1, 30 ether);
+
+        assertEq(collateralToken.balanceOf(user1), 70 ether);
+        assertEq(collateralToken.totalSupply(), 70 ether);
+
+        vm.prank(bridge);
+        vm.expectEmit(true, true, false, true);
+        emit BridgeMint(bridge, user2, 30 ether);
+        collateralToken.bridgeMint(user2, 30 ether);
+
+        assertEq(collateralToken.balanceOf(user2), 30 ether);
+        assertEq(collateralToken.totalSupply(), 100 ether);
+    }
+
+    function test_ERC20_BridgeBurn_UnauthorizedReverts() public {
+        vm.prank(minter);
+        collateralToken.mint(user1, 10 ether);
+
+        vm.prank(user2);
+        vm.expectRevert("MockERC20: caller is not bridge burner");
+        collateralToken.bridgeBurn(user1, 1 ether);
+    }
+
+    function test_ERC20_BridgeMint_UnauthorizedReverts() public {
+        vm.prank(user2);
+        vm.expectRevert("MockERC20: caller is not bridge minter");
+        collateralToken.bridgeMint(user1, 1 ether);
     }
     
     function test_ERC20_TransferAndAllowance() public {

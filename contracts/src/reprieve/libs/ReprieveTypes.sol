@@ -6,6 +6,12 @@ pragma solidity ^0.8.20;
  * @notice Shared structs and enums used across Reprieve protocol contracts
  */
 library ReprieveTypes {
+    /// @notice Rescue action mode for an execution plan
+    enum RescueMode {
+        TOP_UP,         // Increase target collateral
+        REPAY           // Reduce target debt
+    }
+
     /// @notice Status of a rescue operation
     enum RescueStatus {
         None,           // No rescue in progress
@@ -42,6 +48,7 @@ library ReprieveTypes {
     struct RescuePlan {
         bytes32 execId;             // Unique execution ID
         address user;               // User to rescue
+        RescueMode mode;            // Execution mode for all steps
         RescueStep[] steps;         // Ordered rescue steps
         uint256 deadline;           // Execution deadline timestamp
         uint256 maxFee;             // Maximum acceptable fee
@@ -65,6 +72,7 @@ library ReprieveTypes {
     struct CCIPMessage {
         bytes32 execId;             // Execution ID
         address user;               // User to rescue
+        RescueMode mode;            // Execution mode
         address targetAdapter;      // Target adapter address
         address asset;              // Asset being transferred
         uint256 amount;             // Amount

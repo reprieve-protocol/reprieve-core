@@ -250,6 +250,7 @@ contract CCIPReceiver is Ownable, ReentrancyGuard {
             rescueMessage.execId,
             rescueMessage.user,
             rescueMessage.targetAdapter,
+            rescueMessage.mode,
             rescueMessage.asset,
             rescueMessage.amount
         );

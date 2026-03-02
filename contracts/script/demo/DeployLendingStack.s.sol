@@ -61,6 +61,10 @@ contract DeployLendingStack is Script {
         address deployer = vm.addr(deployerPrivateKey);
         string memory configPath = _configPath();
         DeployConfig memory cfg = _readConfig(configPath);
+        address existingCollateral = vm.envOr("COLLATERAL_ASSET", address(0));
+        address existingDebt = vm.envOr("DEBT_ASSET", address(0));
+        address existingOracle = vm.envOr("PRICE_ORACLE", address(0));
+        bool setOraclePrices = vm.envOr("SET_ORACLE_PRICES", false);
 
         console.log("=== DeployLendingStack ===");
         console.log("Chain:", cfg.chainName);
@@ -70,36 +74,59 @@ contract DeployLendingStack is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        // 1) Primitives
-        MockERC20 collateral = new MockERC20(
-            cfg.collateral.name, cfg.collateral.symbol, cfg.collateral.decimals, deployer
-        );
-        MockERC20 debt = new MockERC20(cfg.debt.name, cfg.debt.symbol, cfg.debt.decimals, deployer);
-        MockPriceOracle oracle = new MockPriceOracle(deployer, DemoConstants.DEFAULT_STALENESS_THRESHOLD);
-        oracle.setPrice(address(collateral), cfg.collateral.initialPriceWad);
-        oracle.setPrice(address(debt), cfg.debt.initialPriceWad);
+        // 1) Primitives (deploy or reuse)
+        if ((existingCollateral == address(0)) != (existingDebt == address(0))) {
+            revert("DeployLendingStack: provide both COLLATERAL_ASSET and DEBT_ASSET");
+        }
+
+        address collateralToken;
+        address debtToken;
+        address oracleAddress;
+
+        if (existingCollateral != address(0)) {
+            collateralToken = existingCollateral;
+            debtToken = existingDebt;
+        } else {
+            collateralToken = address(
+                new MockERC20(cfg.collateral.name, cfg.collateral.symbol, cfg.collateral.decimals, deployer)
+            );
+            debtToken = address(new MockERC20(cfg.debt.name, cfg.debt.symbol, cfg.debt.decimals, deployer));
+        }
+
+        if (existingOracle != address(0)) {
+            oracleAddress = existingOracle;
+            if (setOraclePrices) {
+                MockPriceOracle(existingOracle).setPrice(collateralToken, cfg.collateral.initialPriceWad);
+                MockPriceOracle(existingOracle).setPrice(debtToken, cfg.debt.initialPriceWad);
+            }
+        } else {
+            MockPriceOracle oracle = new MockPriceOracle(deployer, DemoConstants.DEFAULT_STALENESS_THRESHOLD);
+            oracle.setPrice(collateralToken, cfg.collateral.initialPriceWad);
+            oracle.setPrice(debtToken, cfg.debt.initialPriceWad);
+            oracleAddress = address(oracle);
+        }
 
         // 2) Protocol mimics
-        MockAavePool aavePool = new MockAavePool(address(collateral), address(debt), address(oracle), deployer);
+        MockAavePool aavePool = new MockAavePool(collateralToken, debtToken, oracleAddress, deployer);
         MockCompoundMarket compoundMarket =
-            new MockCompoundMarket(address(collateral), address(debt), address(oracle), deployer);
-        MockMorphoMarket morphoMarket = new MockMorphoMarket(address(collateral), address(debt), address(oracle), deployer);
+            new MockCompoundMarket(collateralToken, debtToken, oracleAddress, deployer);
+        MockMorphoMarket morphoMarket = new MockMorphoMarket(collateralToken, debtToken, oracleAddress, deployer);
 
         // 3) Engine wiring and risk params
-        _wireAndSetRisk(aavePool.engine(), address(aavePool), address(oracle), cfg.risk);
-        _wireAndSetRisk(compoundMarket.engine(), address(compoundMarket), address(oracle), cfg.risk);
-        _wireAndSetRisk(morphoMarket.engine(), address(morphoMarket), address(oracle), cfg.risk);
+        _wireAndSetRisk(aavePool.engine(), address(aavePool), oracleAddress, cfg.risk);
+        _wireAndSetRisk(compoundMarket.engine(), address(compoundMarket), oracleAddress, cfg.risk);
+        _wireAndSetRisk(morphoMarket.engine(), address(morphoMarket), oracleAddress, cfg.risk);
 
         // 4) Adapters
         AaveLikeAdapter aaveAdapter =
-            new AaveLikeAdapter(address(aavePool), address(collateral), address(debt), deployer);
+            new AaveLikeAdapter(address(aavePool), collateralToken, debtToken, deployer);
         CompoundLikeAdapter compoundAdapter = new CompoundLikeAdapter(
-            address(compoundMarket), address(collateral), address(debt), address(compoundMarket.cToken()), deployer
+            address(compoundMarket), collateralToken, debtToken, address(compoundMarket.cToken()), deployer
         );
         MorphoLikeAdapter morphoAdapter = new MorphoLikeAdapter(
             address(morphoMarket),
-            address(collateral),
-            address(debt),
+            collateralToken,
+            debtToken,
             keccak256(abi.encodePacked("DEMO_MARKET")),
             deployer
         );
@@ -107,9 +134,9 @@ contract DeployLendingStack is Script {
         vm.stopBroadcast();
 
         DeployResult memory result = DeployResult({
-            mockPriceOracle: address(oracle),
-            collateralToken: address(collateral),
-            debtToken: address(debt),
+            mockPriceOracle: oracleAddress,
+            collateralToken: collateralToken,
+            debtToken: debtToken,
             mockAavePool: address(aavePool),
             mockAToken: address(aavePool.aToken()),
             mockCompoundComet: address(compoundMarket),
@@ -122,7 +149,7 @@ contract DeployLendingStack is Script {
         });
 
         _writeConfig(configPath, cfg, result);
-        _printSummary(result);
+        _printSummary(result, existingCollateral != address(0), existingOracle != address(0));
     }
 
     function _wireAndSetRisk(BaseLendingEngine engine, address operator, address oracle, RiskConfig memory risk) internal {
@@ -216,8 +243,10 @@ contract DeployLendingStack is Script {
         console.log("Config updated:", configPath);
     }
 
-    function _printSummary(DeployResult memory r) internal view {
+    function _printSummary(DeployResult memory r, bool reusedTokens, bool reusedOracle) internal pure {
         console.log("\n=== Lending Stack Summary ===");
+        console.log("Reused collateral/debt tokens:", reusedTokens);
+        console.log("Reused oracle:", reusedOracle);
         console.log("MockPriceOracle:", r.mockPriceOracle);
         console.log("MockERC20_Collateral:", r.collateralToken);
         console.log("MockERC20_Debt:", r.debtToken);

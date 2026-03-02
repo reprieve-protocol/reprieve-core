@@ -70,6 +70,7 @@ contract RunFailureScenarios is Script {
         ReprieveTypes.RescuePlan memory preWithdrawFail = ReprieveTypes.RescuePlan({
             execId: execId1,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: step1,
             deadline: block.timestamp + 1 hours,
             maxFee: 0
@@ -81,7 +82,7 @@ contract RunFailureScenarios is Script {
         require(!preOk, "RunFailureScenarios: expected pre-withdraw failure");
         require(!executor.rescueInProgress(user), "RunFailureScenarios: user lock not released after scenario 1");
 
-        // Scenario 2: Post-withdraw repay failure -> escrow
+        // Scenario 2: Post-withdraw top-up failure -> escrow
         vm.startBroadcast(minterPk);
         collateral.mint(user, setupCollateralMint);
         vm.stopBroadcast();
@@ -112,6 +113,7 @@ contract RunFailureScenarios is Script {
         ReprieveTypes.RescuePlan memory postWithdrawFail = ReprieveTypes.RescuePlan({
             execId: execId2,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: step2,
             deadline: block.timestamp + 1 hours,
             maxFee: 0
@@ -155,6 +157,10 @@ contract FailingAdapter is IReprieveAdapter {
 
     function repayForRescue(address, address, uint256) external pure {
         revert("FailingAdapter: forced repay failure");
+    }
+
+    function supplyForRescue(address, address, uint256) external pure {
+        revert("FailingAdapter: forced supply failure");
     }
 
     function supportsPair(address, address) external pure returns (bool supported) {

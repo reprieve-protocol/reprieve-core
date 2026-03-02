@@ -19,6 +19,7 @@ contract AdaptersTest is Test {
     // Events from IReprieveAdapter for testing
     event DebtRepaid(address indexed user, address indexed asset, uint256 amount);
     event CollateralWithdrawn(address indexed user, address indexed asset, uint256 amount, address indexed to);
+    event CollateralSupplied(address indexed user, address indexed asset, uint256 amount);
     // Tokens
     MockERC20 collateral;
     MockERC20 debt;
@@ -281,6 +282,42 @@ contract AdaptersTest is Test {
         aaveAdapter.repayForRescue(user, address(debt), 2000e6);
         vm.stopPrank();
     }
+
+    function test_AaveAdapter_SupplyForRescue() public {
+        uint256 collateralBefore = aavePool.getUserPosition(user).collateral;
+
+        vm.startPrank(rescuer);
+        collateral.approve(address(aaveAdapter), type(uint256).max);
+        aaveAdapter.supplyForRescue(user, address(collateral), 2 ether);
+        vm.stopPrank();
+
+        uint256 collateralAfter = aavePool.getUserPosition(user).collateral;
+        assertEq(collateralAfter - collateralBefore, 2 ether);
+    }
+
+    function test_CompoundAdapter_SupplyForRescue() public {
+        uint256 collateralBefore = compoundMarket.getUserPosition(user).collateral;
+
+        vm.startPrank(rescuer);
+        collateral.approve(address(compoundAdapter), type(uint256).max);
+        compoundAdapter.supplyForRescue(user, address(collateral), 3 ether);
+        vm.stopPrank();
+
+        uint256 collateralAfter = compoundMarket.getUserPosition(user).collateral;
+        assertEq(collateralAfter - collateralBefore, 3 ether);
+    }
+
+    function test_MorphoAdapter_SupplyForRescue() public {
+        uint256 collateralBefore = morphoMarket.getUserPosition(user).collateral;
+
+        vm.startPrank(rescuer);
+        collateral.approve(address(morphoAdapter), type(uint256).max);
+        morphoAdapter.supplyForRescue(user, address(collateral), 1 ether);
+        vm.stopPrank();
+
+        uint256 collateralAfter = morphoMarket.getUserPosition(user).collateral;
+        assertEq(collateralAfter - collateralBefore, 1 ether);
+    }
     
     // ============ PAUSE TESTS ============
     
@@ -305,6 +342,16 @@ contract AdaptersTest is Test {
     function test_Adapter_Repay_UnsupportedAsset() public {
         vm.expectRevert(BaseAdapter.UnsupportedAsset.selector);
         aaveAdapter.repayForRescue(user, address(0), 1000e6);
+    }
+
+    function test_Adapter_Supply_UnsupportedAsset() public {
+        vm.expectRevert(BaseAdapter.UnsupportedAsset.selector);
+        aaveAdapter.supplyForRescue(user, address(debt), 1 ether);
+    }
+
+    function test_Adapter_Supply_ZeroAmount() public {
+        vm.expectRevert(BaseAdapter.ZeroAmount.selector);
+        aaveAdapter.supplyForRescue(user, address(collateral), 0);
     }
     
     function test_Adapter_OnlyOwnerCanPause() public {

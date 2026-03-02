@@ -65,10 +65,13 @@ contract RescueExecutorTest is Test {
         // Deploy oracle
         oracle = new MockPriceOracle(owner, 30 minutes);
         oracle.setPrice(address(collateral), 2000e18);
+        oracle.setPrice(address(debt), 1e18);
         
         // Deploy protocol mocks
         aavePool = new MockAavePool(address(collateral), address(debt), address(oracle), owner);
         compoundMarket = new MockCompoundMarket(address(collateral), address(debt), address(oracle), owner);
+        aavePool.engine().setAuthorizedOperator(address(aavePool), true);
+        compoundMarket.engine().setAuthorizedOperator(address(compoundMarket), true);
         
         // Deploy adapters
         aaveAdapter = new AaveLikeAdapter(address(aavePool), address(collateral), address(debt), owner);
@@ -163,6 +166,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -178,6 +182,191 @@ contract RescueExecutorTest is Test {
         assertFalse(executor.rescueInProgress(user));
         assertEq(uint256(executor.getRescueStatus(EXEC_ID)), uint256(ReprieveTypes.RescueStatus.Failed));
     }
+
+    function test_ExecuteRescue_TopUp_Succeeds() public {
+        vm.startPrank(user);
+        collateral.approve(address(aavePool), type(uint256).max);
+        aavePool.supply(address(collateral), 10 ether, user, 0);
+        aavePool.aToken().approve(address(aaveAdapter), type(uint256).max);
+        collateral.approve(address(compoundMarket), type(uint256).max);
+        compoundMarket.mint(address(collateral), 8 ether);
+        compoundMarket.borrow(address(debt), 5000e6);
+        vm.stopPrank();
+
+        uint256 targetCollateralBefore = compoundMarket.getUserPosition(user).collateral;
+        uint256 targetDebtBefore = compoundMarket.getUserPosition(user).debt;
+
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(aaveAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(collateral),
+            debtAsset: address(debt),
+            collateralAmount: 2 ether,
+            debtAmount: 0,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: keccak256("same-chain-topup-success"),
+            user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        bool success = executor.executeRescue(plan);
+
+        assertTrue(success);
+        assertEq(compoundMarket.getUserPosition(user).collateral, targetCollateralBefore + 2 ether);
+        assertEq(compoundMarket.getUserPosition(user).debt, targetDebtBefore);
+    }
+
+    function test_ExecuteRescue_Repay_Succeeds_HedgeLike() public {
+        // Source leg: lend USDC / borrow WETH pool, used only as USDC source.
+        MockAavePool usdcSourcePool = new MockAavePool(address(debt), address(collateral), address(oracle), owner);
+        AaveLikeAdapter usdcSourceAdapter =
+            new AaveLikeAdapter(address(usdcSourcePool), address(debt), address(collateral), owner);
+
+        usdcSourcePool.engine().setAuthorizedOperator(address(usdcSourcePool), true);
+
+        vm.startPrank(minter);
+        collateral.mint(address(usdcSourcePool.engine()), 1000 ether);
+        debt.mint(user, 20_000e6);
+        vm.stopPrank();
+
+        // Target leg: lend WETH / borrow USDC, then rescue by USDC repay.
+        vm.startPrank(user);
+        collateral.approve(address(compoundMarket), type(uint256).max);
+        compoundMarket.mint(address(collateral), 8 ether);
+        compoundMarket.borrow(address(debt), 5000e6);
+
+        debt.approve(address(usdcSourcePool), type(uint256).max);
+        usdcSourcePool.supply(address(debt), 10_000e6, user, 0);
+        usdcSourcePool.aToken().approve(address(usdcSourceAdapter), type(uint256).max);
+        vm.stopPrank();
+
+        uint256 targetDebtBefore = compoundMarket.getUserPosition(user).debt;
+
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(usdcSourceAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(debt),
+            debtAsset: address(debt),
+            collateralAmount: 2_000e6,
+            debtAmount: 2_000e6,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: keccak256("same-chain-repay-success"),
+            user: user,
+            mode: ReprieveTypes.RescueMode.REPAY,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        bool success = executor.executeRescue(plan);
+
+        assertTrue(success);
+        assertEq(compoundMarket.getUserPosition(user).debt, targetDebtBefore - 2_000e6);
+    }
+
+    function test_ExecuteRescue_RepayMode_RejectsCrossAsset() public {
+        vm.startPrank(user);
+        collateral.approve(address(aavePool), type(uint256).max);
+        aavePool.supply(address(collateral), 10 ether, user, 0);
+        aavePool.aToken().approve(address(aaveAdapter), type(uint256).max);
+        vm.stopPrank();
+
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(aaveAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(collateral), // WETH
+            debtAsset: address(debt),             // USDC (cross-asset)
+            collateralAmount: 1 ether,
+            debtAmount: 1000e6,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: keccak256("same-chain-repay-invalid"),
+            user: user,
+            mode: ReprieveTypes.RescueMode.REPAY,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ReprieveErrors.InvalidRescuePlan.selector,
+                "Same-chain repay requires same asset"
+            )
+        );
+        executor.executeRescue(plan);
+    }
+
+    function test_ExecuteRescue_MixedModeSteps_RejectsSingleExecution() public {
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](2);
+
+        // Step 0: top-up style
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(aaveAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(collateral),
+            debtAsset: address(debt),
+            collateralAmount: 1 ether,
+            debtAmount: 0,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        // Step 1: repay-only style under TOP_UP plan (invalid in this execution)
+        steps[1] = ReprieveTypes.RescueStep({
+            stepIndex: 1,
+            sourceAdapter: address(aaveAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(collateral),
+            debtAsset: address(debt),
+            collateralAmount: 0,
+            debtAmount: 1000e6,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: keccak256("mixed-mode-reject"),
+            user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ReprieveErrors.InvalidRescuePlan.selector,
+                "Invalid top-up params"
+            )
+        );
+        executor.executeRescue(plan);
+    }
     
     function test_ExecuteRescue_RescueInProgressLock() public {
         // Setup position
@@ -192,6 +381,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -220,6 +410,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp - 1, // Past deadline
             maxFee: 1 ether
@@ -237,6 +428,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -264,6 +456,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -298,6 +491,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -355,6 +549,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether
@@ -389,6 +584,7 @@ contract RescueExecutorTest is Test {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: EXEC_ID,
             user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 1 ether

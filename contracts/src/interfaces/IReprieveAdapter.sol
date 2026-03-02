@@ -67,6 +67,15 @@ interface IReprieveAdapter {
      * @dev Pulls tokens from msg.sender
      */
     function repayForRescue(address user, address asset, uint256 amount) external;
+
+    /**
+     * @notice Supply collateral for rescue purposes (top-up path)
+     * @param user The user whose collateral position to increase
+     * @param asset The collateral asset address
+     * @param amount The amount to supply
+     * @dev Pulls tokens from msg.sender
+     */
+    function supplyForRescue(address user, address asset, uint256 amount) external;
     
     /**
      * @notice Check if this adapter supports a given asset pair
@@ -91,4 +100,5 @@ interface IReprieveAdapter {
     event PositionDiscovered(address indexed user, address indexed collateralAsset, uint256 collateralAmount, uint256 debtAmount);
     event CollateralWithdrawn(address indexed user, address indexed asset, uint256 amount, address indexed to);
     event DebtRepaid(address indexed user, address indexed asset, uint256 amount);
+    event CollateralSupplied(address indexed user, address indexed asset, uint256 amount);
 }

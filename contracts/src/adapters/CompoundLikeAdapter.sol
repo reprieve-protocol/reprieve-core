@@ -127,6 +127,22 @@ contract CompoundLikeAdapter is BaseAdapter {
         emit DebtRepaid(user, asset, amount);
     }
 
+    function supplyForRescue(address user, address asset, uint256 amount)
+        external
+        override
+        whenNotPaused
+    {
+        if (amount == 0) revert ZeroAmount();
+        if (asset != collateralAsset) revert UnsupportedAsset();
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(asset).approve(protocol, amount);
+
+        _mintFor(user, asset, amount);
+
+        emit CollateralSupplied(user, asset, amount);
+    }
+
     // ============ Internal Functions ============
 
     function _getProtocolHF(address user) internal view returns (uint256) {
@@ -171,6 +187,18 @@ contract CompoundLikeAdapter is BaseAdapter {
             // Fallback to generic repay
             (bool success2, ) = protocol.call(
                 abi.encodeWithSignature("repay(address,uint256,address)", asset, amount, user)
+            );
+            if (!success2) revert RepayFailed();
+        }
+    }
+
+    function _mintFor(address user, address asset, uint256 amount) internal {
+        (bool success, ) = protocol.call(
+            abi.encodeWithSignature("mintFor(address,address,uint256)", user, asset, amount)
+        );
+        if (!success) {
+            (bool success2, ) = protocol.call(
+                abi.encodeWithSignature("mint(address,uint256)", asset, amount)
             );
             if (!success2) revert RepayFailed();
         }

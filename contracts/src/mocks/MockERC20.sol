@@ -12,13 +12,36 @@ import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 contract MockERC20 is ERC20 {
     uint8 private immutable _decimals;
     address public minter;
+    address public admin;
+    mapping(address => bool) public bridgeBurners;
+    mapping(address => bool) public bridgeMinters;
     
     event Mint(address indexed to, uint256 amount);
     event Burn(address indexed from, uint256 amount);
     event MinterUpdated(address indexed newMinter);
+    event AdminUpdated(address indexed newAdmin);
+    event BridgeBurnerSet(address indexed account, bool allowed);
+    event BridgeMinterSet(address indexed account, bool allowed);
+    event BridgeBurn(address indexed burner, address indexed from, uint256 amount);
+    event BridgeMint(address indexed minter, address indexed to, uint256 amount);
     
     modifier onlyMinter() {
         require(msg.sender == minter, "MockERC20: caller is not minter");
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(msg.sender == admin, "MockERC20: caller is not admin");
+        _;
+    }
+
+    modifier onlyBridgeBurner() {
+        require(bridgeBurners[msg.sender], "MockERC20: caller is not bridge burner");
+        _;
+    }
+
+    modifier onlyBridgeMinter() {
+        require(bridgeMinters[msg.sender], "MockERC20: caller is not bridge minter");
         _;
     }
     
@@ -37,7 +60,9 @@ contract MockERC20 is ERC20 {
     ) ERC20(name_, symbol_) {
         _decimals = decimals_;
         minter = minter_;
+        admin = minter_;
         emit MinterUpdated(minter_);
+        emit AdminUpdated(minter_);
     }
     
     /**
@@ -98,6 +123,62 @@ contract MockERC20 is ERC20 {
         require(newMinter != address(0), "MockERC20: minter cannot be zero address");
         minter = newMinter;
         emit MinterUpdated(newMinter);
+    }
+
+    /**
+     * @notice Update admin address (admin only)
+     * @param newAdmin New admin address
+     */
+    function setAdmin(address newAdmin) external onlyAdmin {
+        require(newAdmin != address(0), "MockERC20: admin cannot be zero address");
+        admin = newAdmin;
+        emit AdminUpdated(newAdmin);
+    }
+
+    /**
+     * @notice Set bridge burner role (admin only)
+     * @param account Address to update
+     * @param allowed True to allow
+     */
+    function setBridgeBurner(address account, bool allowed) external onlyAdmin {
+        require(account != address(0), "MockERC20: bridge burner zero address");
+        bridgeBurners[account] = allowed;
+        emit BridgeBurnerSet(account, allowed);
+    }
+
+    /**
+     * @notice Set bridge minter role (admin only)
+     * @param account Address to update
+     * @param allowed True to allow
+     */
+    function setBridgeMinter(address account, bool allowed) external onlyAdmin {
+        require(account != address(0), "MockERC20: bridge minter zero address");
+        bridgeMinters[account] = allowed;
+        emit BridgeMinterSet(account, allowed);
+    }
+
+    /**
+     * @notice Burn on source chain as bridge operation
+     * @param from Address to burn from
+     * @param amount Amount to burn
+     */
+    function bridgeBurn(address from, uint256 amount) external onlyBridgeBurner {
+        require(from != address(0), "MockERC20: bridge burn from zero address");
+        require(amount > 0, "MockERC20: bridge burn amount must be > 0");
+        _burn(from, amount);
+        emit BridgeBurn(msg.sender, from, amount);
+    }
+
+    /**
+     * @notice Mint on destination chain as bridge operation
+     * @param to Recipient address
+     * @param amount Amount to mint
+     */
+    function bridgeMint(address to, uint256 amount) external onlyBridgeMinter {
+        require(to != address(0), "MockERC20: bridge mint to zero address");
+        require(amount > 0, "MockERC20: bridge mint amount must be > 0");
+        _mint(to, amount);
+        emit BridgeMint(msg.sender, to, amount);
     }
     
     /**

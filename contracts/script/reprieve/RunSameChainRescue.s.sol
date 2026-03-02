@@ -34,15 +34,17 @@ contract RunSameChainRescue is Script {
         address compoundAdapter = vm.envAddress("COMPOUND_ADAPTER");
         address collateralAsset = vm.envAddress("COLLATERAL_ASSET");
         address debtAsset = vm.envAddress("DEBT_ASSET");
+        string memory rescueModeRaw = vm.envOr("RESCUE_MODE", string("TOP_UP"));
+        ReprieveTypes.RescueMode rescueMode = _parseMode(rescueModeRaw);
 
         uint256 userCollateralMint = vm.envOr("USER_COLLATERAL_MINT", uint256(25 ether));
         uint256 sourceSupply = vm.envOr("SOURCE_SUPPLY_COLLATERAL", uint256(10 ether));
         uint256 targetSupply = vm.envOr("TARGET_SUPPLY_COLLATERAL", uint256(8 ether));
         uint256 targetBorrow = vm.envOr("TARGET_BORROW_DEBT", uint256(5_000e6));
-        uint256 rescueCollateralAmount = vm.envOr("RESCUE_WITHDRAW_COLLATERAL", uint256(5 ether));
-        uint256 rescueDebtAmount = vm.envOr("RESCUE_REPAY_DEBT", uint256(4_000e6));
+        uint256 sourceWithdrawAmount = vm.envOr("RESCUE_WITHDRAW_COLLATERAL", uint256(5 ether));
+        uint256 rescueTopUpAmount = vm.envOr("RESCUE_TOPUP_COLLATERAL", sourceWithdrawAmount);
+        uint256 rescueDebtAmount = vm.envOr("RESCUE_REPAY_DEBT", sourceWithdrawAmount);
         uint256 engineLiquidityDebt = vm.envOr("ENGINE_LIQUIDITY_DEBT", uint256(100_000e6));
-        uint256 executorDebtFloat = vm.envOr("EXECUTOR_DEBT_FLOAT", uint256(25_000e6));
 
         MockERC20 collateral = MockERC20(collateralAsset);
         MockERC20 debt = MockERC20(debtAsset);
@@ -51,6 +53,7 @@ contract RunSameChainRescue is Script {
         RescueExecutor executor = RescueExecutor(payable(rescueExecutorAddr));
 
         bytes32 execId = keccak256(abi.encodePacked("same-chain-rescue", block.chainid, user, block.timestamp));
+        uint256 collateralBefore = compoundMarket.getUserPosition(user).collateral;
         uint256 debtBefore = compoundMarket.getUserPosition(user).debt;
 
         console.log("Running same-chain rescue on chain:", block.chainid);
@@ -70,7 +73,6 @@ contract RunSameChainRescue is Script {
         vm.startBroadcast(minterPk);
         collateral.mint(user, userCollateralMint);
         debt.mint(address(compoundMarket.engine()), engineLiquidityDebt);
-        debt.mint(rescueExecutorAddr, executorDebtFloat);
         vm.stopBroadcast();
 
         // 3) User creates source and target positions
@@ -91,8 +93,8 @@ contract RunSameChainRescue is Script {
             targetAdapter: compoundAdapter,
             collateralAsset: collateralAsset,
             debtAsset: debtAsset,
-            collateralAmount: rescueCollateralAmount,
-            debtAmount: rescueDebtAmount,
+            collateralAmount: rescueMode == ReprieveTypes.RescueMode.TOP_UP ? rescueTopUpAmount : sourceWithdrawAmount,
+            debtAmount: rescueMode == ReprieveTypes.RescueMode.REPAY ? rescueDebtAmount : 0,
             isCrossChain: false,
             targetChain: 0
         });
@@ -100,6 +102,7 @@ contract RunSameChainRescue is Script {
         ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
             execId: execId,
             user: user,
+            mode: rescueMode,
             steps: steps,
             deadline: block.timestamp + 1 hours,
             maxFee: 0
@@ -109,8 +112,11 @@ contract RunSameChainRescue is Script {
         bool ok = executor.executeRescue(plan);
         vm.stopBroadcast();
 
+        uint256 collateralAfter = compoundMarket.getUserPosition(user).collateral;
         uint256 debtAfter = compoundMarket.getUserPosition(user).debt;
         console.log("Rescue success:", ok);
+        console.log("Target collateral before:", collateralBefore);
+        console.log("Target collateral after :", collateralAfter);
         console.log("Target debt before:", debtBefore);
         console.log("Target debt after :", debtAfter);
         console.log("Rescue status enum:", uint256(executor.getRescueStatus(execId)));
@@ -118,5 +124,16 @@ contract RunSameChainRescue is Script {
         if (rescueLogAddr != address(0)) {
             console.log("Rescue log entries:", RescueLog(rescueLogAddr).getLogEntryCount(execId));
         }
+    }
+
+    function _parseMode(string memory raw) internal pure returns (ReprieveTypes.RescueMode) {
+        bytes32 modeHash = keccak256(bytes(raw));
+        if (modeHash == keccak256(bytes("TOP_UP"))) {
+            return ReprieveTypes.RescueMode.TOP_UP;
+        }
+        if (modeHash == keccak256(bytes("REPAY"))) {
+            return ReprieveTypes.RescueMode.REPAY;
+        }
+        revert("RunSameChainRescue: RESCUE_MODE must be TOP_UP or REPAY");
     }
 }

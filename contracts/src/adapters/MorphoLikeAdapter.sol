@@ -119,6 +119,22 @@ contract MorphoLikeAdapter is BaseAdapter {
         emit DebtRepaid(user, asset, amount);
     }
 
+    function supplyForRescue(address user, address asset, uint256 amount)
+        external
+        override
+        whenNotPaused
+    {
+        if (amount == 0) revert ZeroAmount();
+        if (asset != collateralAsset) revert UnsupportedAsset();
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(asset).approve(protocol, amount);
+
+        _supplyCollateralFor(user, amount);
+
+        emit CollateralSupplied(user, asset, amount);
+    }
+
     // ============ Internal Functions ============
 
     function _getProtocolHF(address user) internal view returns (uint256) {
@@ -173,6 +189,23 @@ contract MorphoLikeAdapter is BaseAdapter {
             // Fallback to generic repay
             (bool success2, ) = protocol.call(
                 abi.encodeWithSignature("repay(address,uint256,address)", asset, amount, user)
+            );
+            if (!success2) revert RepayFailed();
+        }
+    }
+
+    function _supplyCollateralFor(address user, uint256 amount) internal {
+        (bool success, ) = protocol.call(
+            abi.encodeWithSignature(
+                "supplyCollateral(uint256,address,bytes)",
+                amount,
+                user,
+                ""
+            )
+        );
+        if (!success) {
+            (bool success2, ) = protocol.call(
+                abi.encodeWithSignature("supply(address,uint256,address)", collateralAsset, amount, user)
             );
             if (!success2) revert RepayFailed();
         }

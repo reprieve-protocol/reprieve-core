@@ -18,8 +18,20 @@ interface IRescueExecutor {
     
     // Core functions
     function executeRescue(ReprieveTypes.RescuePlan calldata plan) external returns (bool success);
-    function executeSameChainLeg(ReprieveTypes.RescueStep calldata step, address user, bytes32 execId) external returns (bool);
-    function completeCrossChainLeg(bytes32 execId, address user, address targetAdapter, address asset, uint256 amount) external returns (bool);
+    function executeSameChainLeg(
+        ReprieveTypes.RescueStep calldata step,
+        address user,
+        bytes32 execId,
+        ReprieveTypes.RescueMode mode
+    ) external returns (bool);
+    function completeCrossChainLeg(
+        bytes32 execId,
+        address user,
+        address targetAdapter,
+        ReprieveTypes.RescueMode mode,
+        address asset,
+        uint256 amount
+    ) external returns (bool);
     
     // State checks
     function rescueInProgress(address user) external view returns (bool);
