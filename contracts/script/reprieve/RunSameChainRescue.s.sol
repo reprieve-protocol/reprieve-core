@@ -57,8 +57,6 @@ contract RunSameChainRescue is Script {
         RescueExecutor executor = RescueExecutor(payable(rescueExecutorAddr));
 
         bytes32 execId = keccak256(abi.encodePacked("same-chain-rescue", block.chainid, user, block.timestamp));
-        uint256 collateralBefore = compoundMarket.getUserPosition(user).collateral;
-        uint256 debtBefore = compoundMarket.getUserPosition(user).debt;
 
         console.log("Running same-chain rescue on chain:", block.chainid);
         console.log("Owner:", owner);
@@ -134,6 +132,9 @@ contract RunSameChainRescue is Script {
             console.log("Repay source pool:", address(repaySourcePool));
             console.log("Repay source adapter:", address(repaySourceAdapter));
         }
+
+        uint256 collateralBefore = compoundMarket.getUserPosition(user).collateral;
+        uint256 debtBefore = compoundMarket.getUserPosition(user).debt;
 
         // 4) Workflow executes same-chain rescue
         ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);

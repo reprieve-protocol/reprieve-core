@@ -93,8 +93,7 @@ contract RunCrossChainRescue is Script {
         if (mockRouterAddr != address(0) && wireMockBridge) {
             vm.startBroadcast(bridgeAdminPk);
             MockERC20(bridgeSourceToken).setBridgeBurner(mockRouterAddr, true);
-            MockERC20(bridgeDestinationToken).setBridgeMinter(mockRouterAddr, true);
-            MockERC20(bridgeDestinationToken).setBridgeBurner(mockRouterAddr, true);
+            MockERC20(bridgeSourceToken).setBridgeMinter(mockRouterAddr, true);
             vm.stopBroadcast();
         }
 

@@ -74,8 +74,7 @@ contract WireCcipLane is Script {
         if (configureMockRouter) {
             vm.startBroadcast(bridgeAdminPk);
             MockERC20(bridgeSourceToken).setBridgeBurner(sourceRouter, true);
-            MockERC20(bridgeDestinationToken).setBridgeMinter(sourceRouter, true);
-            MockERC20(bridgeDestinationToken).setBridgeBurner(sourceRouter, true);
+            MockERC20(bridgeSourceToken).setBridgeMinter(sourceRouter, true);
             vm.stopBroadcast();
         }
 
