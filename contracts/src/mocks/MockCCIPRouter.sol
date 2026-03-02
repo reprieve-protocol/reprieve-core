@@ -101,6 +101,13 @@ contract MockCCIPRouter is ICCIPRouter {
     event LaneSet(uint64 indexed sourceChainSelector, uint64 indexed destinationChainSelector, bool enabled);
     event TokenMappingSet(uint64 indexed destinationChainSelector, address indexed sourceToken, address indexed destinationToken);
     event ReceiverSet(uint64 indexed destinationChainSelector, address indexed receiver);
+    event ExternalMessageRelayed(
+        bytes32 indexed messageId,
+        uint64 indexed sourceChainSelector,
+        address indexed receiver,
+        address token,
+        uint256 amount
+    );
     
     constructor(address _linkToken) {
         owner = msg.sender;
@@ -255,6 +262,85 @@ contract MockCCIPRouter is ICCIPRouter {
     function retryFailedMessage(bytes32 messageId) external {
         require(messageStatus[messageId] == MessageStatus.Failed, "MockCCIPRouter: message not failed");
         _deliverMessage(messageId, 0, false);
+    }
+
+    /**
+     * @notice Relay a message that originated from a different router/network.
+     * @dev Owner-only helper for two-network demo relay where source and destination routers are distinct contracts.
+     * @param messageId Message id from the source router tx
+     * @param sourceChainSelector Source chain selector from original message
+     * @param sourceSender Original source sender (e.g., source RescueExecutor)
+     * @param receiver Destination CCIPReceiver contract
+     * @param data Original message payload (CCIPMessage-encoded)
+     * @param destinationToken Destination token to mint to receiver
+     * @param destinationAmount Destination token amount to mint and forward
+     */
+    function deliverExternalMessage(
+        bytes32 messageId,
+        uint64 sourceChainSelector,
+        address sourceSender,
+        address receiver,
+        bytes calldata data,
+        address destinationToken,
+        uint256 destinationAmount
+    ) external onlyOwner {
+        require(sourceChainSelector != 0, "MockCCIPRouter: source selector zero");
+        require(sourceSender != address(0), "MockCCIPRouter: sender zero address");
+        require(receiver != address(0), "MockCCIPRouter: receiver zero address");
+        require(destinationToken != address(0), "MockCCIPRouter: token zero address");
+        require(destinationAmount > 0, "MockCCIPRouter: token amount must be > 0");
+        require(
+            messageStatus[messageId] != MessageStatus.Pending && messageStatus[messageId] != MessageStatus.Delivered,
+            "MockCCIPRouter: message already active"
+        );
+
+        address expectedReceiver = chainReceivers[currentChainSelector];
+        if (expectedReceiver != address(0)) {
+            require(expectedReceiver == receiver, "MockCCIPRouter: receiver mismatch");
+        }
+
+        CCIPClient.EVMTokenAmount[] memory tokenAmounts = new CCIPClient.EVMTokenAmount[](1);
+        tokenAmounts[0] = CCIPClient.EVMTokenAmount({token: destinationToken, amount: destinationAmount});
+
+        messages[messageId] = StoredMessage({
+            sourceChainSelector: sourceChainSelector,
+            destinationChainSelector: currentChainSelector,
+            sender: sourceSender,
+            receiver: abi.encode(receiver),
+            data: data,
+            tokenAmounts: tokenAmounts,
+            extraArgs: bytes(""),
+            feeToken: address(0),
+            timestamp: block.timestamp
+        });
+        messageStatus[messageId] = MessageStatus.Pending;
+
+        IMockBridgeToken(destinationToken).bridgeMint(receiver, destinationAmount);
+
+        CCIPClient.Any2EVMMessage memory message = CCIPClient.Any2EVMMessage({
+            messageId: messageId,
+            sourceChainSelector: sourceChainSelector,
+            sender: abi.encode(sourceSender),
+            data: data,
+            destTokenAmounts: tokenAmounts
+        });
+
+        (bool success, bytes memory reason) = receiver.call(
+            abi.encodeWithSignature("ccipReceive((bytes32,uint64,bytes,bytes,(address,uint256)[]))", message)
+        );
+        if (!success) {
+            try IMockBridgeToken(destinationToken).bridgeBurn(receiver, destinationAmount) {} catch {}
+            messageStatus[messageId] = MessageStatus.Failed;
+            string memory failureReason = _decodeRevertReason(reason);
+            messageFailureReason[messageId] = failureReason;
+            emit MessageFailed(messageId, receiver, failureReason);
+            return;
+        }
+
+        messageStatus[messageId] = MessageStatus.Delivered;
+        delete messageFailureReason[messageId];
+        emit ExternalMessageRelayed(messageId, sourceChainSelector, receiver, destinationToken, destinationAmount);
+        emit MessageDelivered(messageId, receiver, tokenAmounts.length);
     }
 
     function _deliverMessage(bytes32 messageId, uint64 sourceChainSelector, bool overrideSource) internal {

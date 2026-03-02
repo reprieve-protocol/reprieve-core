@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {MockERC20} from "../../src/mocks/MockERC20.sol";
 import {MockAavePool} from "../../src/mocks/MockAavePool.sol";
 import {MockCompoundMarket} from "../../src/mocks/MockCompoundMarket.sol";
-import {BaseLendingEngine} from "../../src/mocks/BaseLendingEngine.sol";
+import {AaveLikeAdapter} from "../../src/adapters/AaveLikeAdapter.sol";
 import {RescueExecutor} from "../../src/reprieve/RescueExecutor.sol";
 import {RescueLog} from "../../src/reprieve/RescueLog.sol";
 import {ReprieveTypes} from "../../src/reprieve/libs/ReprieveTypes.sol";
@@ -41,10 +41,14 @@ contract RunSameChainRescue is Script {
         uint256 sourceSupply = vm.envOr("SOURCE_SUPPLY_COLLATERAL", uint256(10 ether));
         uint256 targetSupply = vm.envOr("TARGET_SUPPLY_COLLATERAL", uint256(8 ether));
         uint256 targetBorrow = vm.envOr("TARGET_BORROW_DEBT", uint256(5_000e6));
-        uint256 sourceWithdrawAmount = vm.envOr("RESCUE_WITHDRAW_COLLATERAL", uint256(5 ether));
+        uint256 defaultWithdrawAmount = rescueMode == ReprieveTypes.RescueMode.REPAY ? uint256(2_000e6) : uint256(5 ether);
+        uint256 sourceWithdrawAmount = vm.envOr("RESCUE_WITHDRAW_COLLATERAL", defaultWithdrawAmount);
         uint256 rescueTopUpAmount = vm.envOr("RESCUE_TOPUP_COLLATERAL", sourceWithdrawAmount);
-        uint256 rescueDebtAmount = vm.envOr("RESCUE_REPAY_DEBT", sourceWithdrawAmount);
+        uint256 rescueDebtAmount = vm.envOr("RESCUE_REPAY_DEBT", uint256(2_000e6));
         uint256 engineLiquidityDebt = vm.envOr("ENGINE_LIQUIDITY_DEBT", uint256(100_000e6));
+        uint256 repaySourceDebtMint = vm.envOr("REPAY_SOURCE_DEBT_MINT", uint256(20_000e6));
+        uint256 repaySourceSupplyDebt = vm.envOr("REPAY_SOURCE_SUPPLY_DEBT", uint256(10_000e6));
+        uint256 repaySourceEngineLiquidityCollateral = vm.envOr("REPAY_SOURCE_ENGINE_LIQ_COLLATERAL", uint256(1_000 ether));
 
         MockERC20 collateral = MockERC20(collateralAsset);
         MockERC20 debt = MockERC20(debtAsset);
@@ -60,41 +64,87 @@ contract RunSameChainRescue is Script {
         console.log("Owner:", owner);
         console.log("Workflow:", workflow);
         console.log("User:", user);
+        console.log("Mode:", rescueMode == ReprieveTypes.RescueMode.TOP_UP ? "TOP_UP" : "REPAY");
         console.log("ExecId:", vm.toString(execId));
 
         // 1) Owner wiring for operator/workflow path
         vm.startBroadcast(ownerPk);
         executor.setAuthorizedWorkflow(workflow, true);
-        aavePool.engine().setAuthorizedOperator(aavePoolAddr, true);
         compoundMarket.engine().setAuthorizedOperator(compoundMarketAddr, true);
+        if (rescueMode == ReprieveTypes.RescueMode.TOP_UP) {
+            aavePool.engine().setAuthorizedOperator(aavePoolAddr, true);
+        }
         vm.stopBroadcast();
 
         // 2) Seed balances/liquidity required for scenario
         vm.startBroadcast(minterPk);
         collateral.mint(user, userCollateralMint);
         debt.mint(address(compoundMarket.engine()), engineLiquidityDebt);
+        if (rescueMode == ReprieveTypes.RescueMode.REPAY) {
+            debt.mint(user, repaySourceDebtMint);
+        }
         vm.stopBroadcast();
 
         // 3) User creates source and target positions
         vm.startBroadcast(userPk);
-        collateral.approve(aavePoolAddr, type(uint256).max);
         collateral.approve(compoundMarketAddr, type(uint256).max);
-        aavePool.supply(collateralAsset, sourceSupply, user, 0);
         compoundMarket.mint(collateralAsset, targetSupply);
         compoundMarket.borrow(debtAsset, targetBorrow);
-        aavePool.aToken().approve(aaveAdapter, type(uint256).max);
         vm.stopBroadcast();
+
+        address sourceAdapterForStep = aaveAdapter;
+        address sourceAssetForStep = collateralAsset;
+        uint256 sourceAmountForStep = rescueTopUpAmount;
+        uint256 debtAmountForStep = 0;
+
+        if (rescueMode == ReprieveTypes.RescueMode.TOP_UP) {
+            vm.startBroadcast(userPk);
+            collateral.approve(aavePoolAddr, type(uint256).max);
+            aavePool.supply(collateralAsset, sourceSupply, user, 0);
+            aavePool.aToken().approve(aaveAdapter, type(uint256).max);
+            vm.stopBroadcast();
+        } else {
+            if (sourceWithdrawAmount < rescueDebtAmount) {
+                revert("RunSameChainRescue: RESCUE_WITHDRAW_COLLATERAL must be >= RESCUE_REPAY_DEBT in REPAY mode");
+            }
+
+            vm.startBroadcast(ownerPk);
+            MockAavePool repaySourcePool =
+                new MockAavePool(debtAsset, collateralAsset, aavePool.oracle(), owner);
+            AaveLikeAdapter repaySourceAdapter =
+                new AaveLikeAdapter(address(repaySourcePool), debtAsset, collateralAsset, owner);
+            repaySourcePool.engine().setAuthorizedOperator(address(repaySourcePool), true);
+            vm.stopBroadcast();
+
+            vm.startBroadcast(minterPk);
+            collateral.mint(address(repaySourcePool.engine()), repaySourceEngineLiquidityCollateral);
+            vm.stopBroadcast();
+
+            vm.startBroadcast(userPk);
+            debt.approve(address(repaySourcePool), type(uint256).max);
+            repaySourcePool.supply(debtAsset, repaySourceSupplyDebt, user, 0);
+            repaySourcePool.aToken().approve(address(repaySourceAdapter), type(uint256).max);
+            vm.stopBroadcast();
+
+            sourceAdapterForStep = address(repaySourceAdapter);
+            sourceAssetForStep = debtAsset;
+            sourceAmountForStep = sourceWithdrawAmount;
+            debtAmountForStep = rescueDebtAmount;
+
+            console.log("Repay source pool:", address(repaySourcePool));
+            console.log("Repay source adapter:", address(repaySourceAdapter));
+        }
 
         // 4) Workflow executes same-chain rescue
         ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
         steps[0] = ReprieveTypes.RescueStep({
             stepIndex: 0,
-            sourceAdapter: aaveAdapter,
+            sourceAdapter: sourceAdapterForStep,
             targetAdapter: compoundAdapter,
-            collateralAsset: collateralAsset,
+            collateralAsset: sourceAssetForStep,
             debtAsset: debtAsset,
-            collateralAmount: rescueMode == ReprieveTypes.RescueMode.TOP_UP ? rescueTopUpAmount : sourceWithdrawAmount,
-            debtAmount: rescueMode == ReprieveTypes.RescueMode.REPAY ? rescueDebtAmount : 0,
+            collateralAmount: sourceAmountForStep,
+            debtAmount: debtAmountForStep,
             isCrossChain: false,
             targetChain: 0
         });

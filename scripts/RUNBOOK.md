@@ -84,19 +84,31 @@ What it does:
 - Writes artifact:
   - `contracts/config/mock-ccip-router-<chainId>.json`
 
-### D. Full deploy on one chain (lending + reprieve)
+### D. Relay mock CCIP message across two real testnets
+
+```bash
+./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id>
+```
+
+What it does:
+- Reads the stored message from source-chain `MockCCIPRouter`.
+- Exports message data/token fields to `contracts/config/mock-relay-<sourceChainId>.env`.
+- Broadcasts destination-chain relay tx via `RelayExternalMockMessage`.
+- Calls destination router `deliverExternalMessage(...)`, which mints destination token to receiver and calls `ccipReceive`.
+
+### E. Full deploy on one chain (lending + reprieve)
 
 ```bash
 ./scripts/ops.sh full-deploy ethereum-sepolia
 ```
 
-### E. Verify deployed Reprieve wiring
+### F. Verify deployed Reprieve wiring
 
 ```bash
 ./scripts/ops.sh reprieve-verify ethereum-sepolia
 ```
 
-### F. Run demo rescue scenarios
+### G. Run demo rescue scenarios
 
 Same-chain:
 ```bash
@@ -106,6 +118,8 @@ Notes:
 - Same-chain rescue now uses collateral top-up on target positions (debt is unchanged).
 - Set `RESCUE_MODE=REPAY` to run debt repay flow.
 - In same-chain `REPAY` mode, source withdraw asset and repay asset must match (no swap inside executor).
+- In same-chain `REPAY` mode, the script deploys a temporary reversed source Aave-like pool/adapter (`debt` as source collateral) so withdrawn source asset can repay target debt directly.
+- Optional repay setup knobs: `REPAY_SOURCE_DEBT_MINT`, `REPAY_SOURCE_SUPPLY_DEBT`, `REPAY_SOURCE_ENGINE_LIQ_COLLATERAL`.
 
 Cross-chain leg (CCIP flow):
 ```bash
@@ -125,7 +139,7 @@ Hedging-oriented repay example:
 - Example branch A (WETH dump): withdraw USDC source leg and repay USDC target debt.
 - Example branch B (WETH pump): withdraw WETH source leg and repay WETH target debt.
 
-### G. Wire CCIP lane permissions/config
+### H. Wire CCIP lane permissions/config
 
 Source-side lane wiring (executor + optional mock router lane/token mapping):
 ```bash
@@ -181,3 +195,4 @@ Run build/tests/check scripts:
 6. `./scripts/ops.sh ccip-wire-dest base-sepolia`
 7. `./scripts/ops.sh same-chain-demo ethereum-sepolia`
 8. `./scripts/ops.sh cross-chain-demo ethereum-sepolia`
+9. `./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id>`

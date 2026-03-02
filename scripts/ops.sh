@@ -15,6 +15,7 @@ Usage:
 Commands:
   lending-deploy <ethereum-sepolia|base-sepolia>
   mock-router-deploy <ethereum-sepolia|base-sepolia>
+  mock-relay <source-chain> <destination-chain> <message-id>
   reprieve-deploy <ethereum-sepolia|base-sepolia>
   full-deploy <ethereum-sepolia|base-sepolia>
   ccip-wire-source <ethereum-sepolia|base-sepolia>
@@ -115,8 +116,17 @@ run_forge_script() {
   forge script "$target" --rpc-url "$RPC_URL" --broadcast -vvvv
 }
 
+run_forge_script_readonly() {
+  local target="$1"
+  cd "$CONTRACTS_DIR"
+  forge script "$target" --rpc-url "$RPC_URL" -vvvv
+}
+
 cmd="${1:-}"
-chain="${2:-}"
+arg2="${2:-}"
+arg3="${3:-}"
+arg4="${4:-}"
+chain="$arg2"
 
 case "$cmd" in
   lending-deploy)
@@ -137,6 +147,60 @@ case "$cmd" in
     fi
     export SOURCE_CHAIN_SELECTOR="${SOURCE_CHAIN_SELECTOR:-$(selector_for_chain_id "$CHAIN_ID")}"
     run_forge_script "script/reprieve/DeployMockCCIPRouter.s.sol:DeployMockCCIPRouter"
+    ;;
+  mock-relay)
+    source_chain="$arg2"
+    dest_chain="$arg3"
+    message_id="$arg4"
+    if [ -z "$source_chain" ] || [ -z "$dest_chain" ] || [ -z "$message_id" ]; then
+      echo "mock-relay requires <source-chain> <destination-chain> <message-id>."
+      usage
+      exit 1
+    fi
+
+    set_chain "$source_chain"
+    source_chain_id="$CHAIN_ID"
+    source_selector="$(selector_for_chain_id "$CHAIN_ID")"
+    source_router="$CCIP_ROUTER"
+    if [ -z "${source_router:-}" ]; then
+      echo "Missing source CCIP router for $source_chain (set chain router env first)."
+      exit 1
+    fi
+
+    export_file="$CONTRACTS_DIR/config/mock-relay-${source_chain_id}.env"
+    export MOCK_CCIP_ROUTER="$source_router"
+    export MOCK_MESSAGE_ID="$message_id"
+    export MOCK_EXPORT_PATH="$export_file"
+
+    echo "Exporting source mock message from $source_chain..."
+    run_forge_script_readonly "script/reprieve/ExportMockCCIPMessage.s.sol:ExportMockCCIPMessage"
+
+    if [ ! -f "$export_file" ]; then
+      echo "Failed to export source message file: $export_file"
+      exit 1
+    fi
+    # shellcheck disable=SC1090
+    source "$export_file"
+    if [ -z "${MOCK_SOURCE_SELECTOR:-}" ] || [ -z "${MOCK_DEST_RECEIVER:-}" ] || [ -z "${MOCK_PAYLOAD:-}" ]; then
+      echo "Export file missing required relay fields."
+      exit 1
+    fi
+    if [ -n "$source_selector" ] && [ "$MOCK_SOURCE_SELECTOR" != "$source_selector" ]; then
+      echo "Warning: source selector mismatch (export=$MOCK_SOURCE_SELECTOR expected=$source_selector)"
+    fi
+
+    unset RPC_URL
+    unset PRIVATE_KEY
+    unset CCIP_ROUTER
+    set_chain "$dest_chain"
+    if [ -z "${CCIP_ROUTER:-}" ]; then
+      echo "Missing destination CCIP router for $dest_chain (set chain router env first)."
+      exit 1
+    fi
+    export MOCK_CCIP_ROUTER="$CCIP_ROUTER"
+
+    echo "Relaying message on destination chain $dest_chain..."
+    run_forge_script "script/reprieve/RelayExternalMockMessage.s.sol:RelayExternalMockMessage"
     ;;
   reprieve-deploy)
     set_chain "$chain"

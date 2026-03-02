@@ -1,7 +1,7 @@
 {
     "chainId": 84532,
     "contracts": {
-        "MockCCIPRouter": "0xDbd8096d021DF6C87f594B8089d9b4abDb1D18d5",
+        "MockCCIPRouter": "0xAE39156C5FCBAB6E5CfaBbdaDD3207aCd2BAdeac",
         "LinkToken": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410"
     },
     "config": {

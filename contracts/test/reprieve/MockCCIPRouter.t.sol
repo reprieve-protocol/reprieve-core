@@ -135,6 +135,67 @@ contract MockCCIPRouterTest is Test {
         router.ccipSend{value: 0.01 ether}(DEST_CHAIN_SELECTOR, _buildMessage(1 ether));
     }
 
+    function test_deliverExternalMessage_Succeeds() public {
+        bytes32 messageId = keccak256("external-message");
+        address externalSender = makeAddr("externalSender");
+        bytes memory payload = abi.encode(uint256(1337));
+        uint256 amount = 3 ether;
+
+        uint256 supplyBefore = destinationToken.totalSupply();
+        router.deliverExternalMessage(
+            messageId,
+            SOURCE_CHAIN_SELECTOR,
+            externalSender,
+            address(receiver),
+            payload,
+            address(destinationToken),
+            amount
+        );
+
+        assertEq(uint256(router.messageStatus(messageId)), uint256(MockCCIPRouter.MessageStatus.Delivered));
+        assertEq(destinationToken.totalSupply(), supplyBefore + amount);
+        assertEq(destinationToken.balanceOf(address(receiver)), amount);
+        assertEq(receiver.lastMessageId(), messageId);
+        assertEq(receiver.lastSourceSelector(), SOURCE_CHAIN_SELECTOR);
+        assertEq(receiver.lastToken(), address(destinationToken));
+        assertEq(receiver.lastAmount(), amount);
+    }
+
+    function test_deliverExternalMessage_RevertingReceiverMarksFailed() public {
+        bytes32 messageId = keccak256("external-message-revert");
+        address externalSender = makeAddr("externalSender");
+        bytes memory payload = abi.encode(uint256(2026));
+        uint256 amount = 2 ether;
+
+        receiver.setShouldRevert(true);
+        router.deliverExternalMessage(
+            messageId,
+            SOURCE_CHAIN_SELECTOR,
+            externalSender,
+            address(receiver),
+            payload,
+            address(destinationToken),
+            amount
+        );
+
+        assertEq(uint256(router.messageStatus(messageId)), uint256(MockCCIPRouter.MessageStatus.Failed));
+        assertEq(destinationToken.balanceOf(address(receiver)), 0);
+    }
+
+    function test_deliverExternalMessage_OnlyOwner() public {
+        vm.prank(sender);
+        vm.expectRevert("MockCCIPRouter: caller is not owner");
+        router.deliverExternalMessage(
+            keccak256("not-owner"),
+            SOURCE_CHAIN_SELECTOR,
+            sender,
+            address(receiver),
+            abi.encode(uint256(1)),
+            address(destinationToken),
+            1 ether
+        );
+    }
+
     function _sendMessage(uint256 amount) internal returns (bytes32) {
         CCIPClient.EVM2AnyMessage memory message = _buildMessage(amount);
         uint256 fee = router.getFee(DEST_CHAIN_SELECTOR, message);
