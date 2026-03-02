@@ -1,0 +1,79 @@
+{
+  "strategyId": "QUANT_FUNDING_OI_V1",
+  "workflowVersion": "0.2.0-slide1",
+  "chainSelectorName": "ethereum-testnet-sepolia",
+  "isTestnet": true,
+  "contracts": {
+    "rescueExecutor": "0xd2ade981e8db77250DE58ee241529143435E234F",
+    "rescueReporter": "0xD990d952E82784e61852b8D4d465CB40C08F4B7d",
+    "ccipReceiver": "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+  },
+  "trigger": {
+    "http": {
+      "enabled": true,
+      "authorizedKeys": [
+        "0x04aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    "evmLog": {
+      "enabled": true,
+      "chainSelectorName": "ethereum-testnet-sepolia",
+      "isTestnet": true,
+      "addresses": [
+        "0xd2ade981e8db77250DE58ee241529143435E234F",
+        "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+      ],
+      "topics": [
+        "0xd4128db1fda076924846d094ad59a41b49f7a4549d7458efe4cc4b646e71ff8f",
+        "0x33b6af444fe9519ea73c16ffe62acbdc79315a8279b135dea1c39fbf71e57600",
+        "0xa2009c4dd61cbd90c9ae3bd19525a33ddbc46f3dc6973936180c9f1f091b6dbe",
+        "0x4cdde96a772bd91aba8e6b851177e3723470d4e954a493eb5d018aa56320c30c",
+        "0x9a38f04f175068f7831600f534c9e0a415195bdd7ed9af8a9db2618ee37ee11d",
+        "0xa1a9797d1cf848fa8a8558bc9e2d8cefadf44a7c0155cc17c5aa72b965d58a30"
+      ],
+      "confidence": "CONFIDENCE_LEVEL_FINALIZED"
+    },
+    "cron": {
+      "enabled": true,
+      "schedule": "*/5 * * * *"
+    }
+  },
+  "thresholds": {
+    "onchainHfMinBps": 10000,
+    "earlyWarningHfBps": 11500,
+    "fundingStressBps": 450,
+    "oiStressBps": 350,
+    "venueDivergencePenaltyBps": 220
+  },
+  "budget": {
+    "maxNativeFeeWei": "50000000000000000",
+    "maxRescueNotionalUsd": 100000
+  },
+  "rescue": {
+    "defaultMode": "REPAY",
+    "allowCrossChain": true,
+    "reserveCapBps": 3500
+  },
+  "crossChain": {
+    "sourceChainSelector": "16015286601757825753",
+    "destinationChainSelector": "10344971235874465080",
+    "deliveryTimeoutSec": 1800
+  },
+  "dataSources": {
+    "chainlinkApi": {
+      "priceApiBaseUrl": "https://api.chainlink.example",
+      "priceApiPath": "/v1/price",
+      "maxPriceAgeSec": 120,
+      "integritySalt": "reprieve-quant-funding-oi-v1"
+    },
+    "quantFundingOi": {
+      "binanceFundingUrl": "https://fapi.binance.com/fapi/v1/fundingRate",
+      "bybitFundingUrl": "https://api.bybit.com/v5/market/funding/history",
+      "binanceOiUrl": "https://fapi.binance.com/fapi/v1/openInterest",
+      "bybitOiUrl": "https://api.bybit.com/v5/market/open-interest",
+      "fundingWeightBps": 4000,
+      "oiWeightBps": 3500,
+      "divergenceWeightBps": 2500
+    }
+  }
+}

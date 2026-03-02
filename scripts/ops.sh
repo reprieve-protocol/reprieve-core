@@ -20,6 +20,7 @@ Commands:
   cross-chain-rescue-setup-destination <ethereum-sepolia|base-sepolia>
   cross-chain-rescue-execute <ethereum-sepolia|base-sepolia>
   cross-chain-rescue-relay <source-chain> <destination-chain> [message-id|latest]
+  same-chain-rescue-setup <ethereum-sepolia|base-sepolia>
   reprieve-deploy <ethereum-sepolia|base-sepolia>
   full-deploy <ethereum-sepolia|base-sepolia>
   ccip-wire-source <ethereum-sepolia|base-sepolia>
@@ -275,6 +276,13 @@ case "$cmd" in
       exit 1
     fi
     run_forge_script "script/reprieve/CrossChainRescueExecute.s.sol:CrossChainRescueExecute"
+    ;;
+  same-chain-rescue-setup)
+    set_chain "$chain"
+    load_lending_addresses_from_config
+    load_reprieve_addresses_from_artifact
+    export RESCUE_MODE="${RESCUE_MODE:-TOP_UP}"
+    run_forge_script "script/reprieve/SameChainRescueSetup.s.sol:SameChainRescueSetup"
     ;;
   reprieve-deploy)
     set_chain "$chain"

@@ -29,6 +29,13 @@ Implement a per-user CRE workflow that performs:
 - Parallel reads where possible, bounded by CRE capability quotas.
 - Deterministic planning from a single snapshot to avoid divergent outputs.
 
+### Current contract alignment (must reflect implementation)
+- Rescue execution is single-mode per plan (`TOP_UP` or `REPAY`), never mixed in one `executeRescue`.
+- Source `RescueExecutor.executeRescue` marks `Completed` when cross-chain dispatch is initiated successfully, not when destination action is finalized.
+- Source `rescueInProgress[user]` lock is cleared at end of `executeRescue`, even for cross-chain legs.
+- Destination finalization truth for cross-chain is event-driven from `CCIPReceiver` (`CrossChainCompleted` or failure + escrow events).
+- In two-network mock demo mode, cross-chain delivery requires explicit relay after source execute.
+
 ---
 
 ## 2) Workflow Topology
@@ -58,6 +65,50 @@ Why this topology:
 - Cron watchdog prevents blind spots when off-chain trigger infrastructure degrades.
 - Keeps one workflow per user while still supporting event-driven reconciliation.
 
+## 2.5) Base CRE Execution Lifecycle (V1 Reference)
+
+The base `CHAINLINK_API_GUARD_V1` workflow follows this end-to-end lifecycle:
+
+1. Trigger
+- HTTP primary trigger from bot/backend, with cron fallback.
+
+2. Load config and guards
+- Load per-user config (mode, thresholds, budgets, chains).
+- Enforce auth/idempotency checks and pending cross-chain guard.
+
+3. Read on-chain state
+- Pull positions from configured adapters.
+- Read health factor, available collateral, and related protocol state.
+
+4. Fetch risk inputs
+- Fetch Chainlink-path price inputs (and profile-specific off-chain data if configured).
+- Validate freshness/integrity and apply fallback policy.
+
+5. Compute risk decision
+- Build aggregate risk snapshot and effective HF.
+- Decide `NO_ACTION` or rescue decision.
+
+6. Build rescue plan
+- Enforce single-mode plan (`TOP_UP` or `REPAY`).
+- Size action amount and select sources (same-chain first, then cross-chain).
+- Enforce reserve cap, budget, and no-swap compatibility constraints.
+
+7. Optional pre-sim (later)
+- Optional simulation gate (fail-closed in demo configuration when enabled).
+
+8. Execute on source chain
+- Submit `executeRescue(plan)` on source `RescueExecutor`.
+- Capture `execId`, tx hash, and `ccipMessageId` for cross-chain legs.
+
+9. Cross-chain settlement (if needed)
+- Demo mock mode relay is completed by relay tooling.
+- Final terminal truth comes from destination events:
+  - `CrossChainCompleted`
+  - `CrossChainDestinationFailed` / `EscrowCreated`
+
+10. Emit workflow output
+- Return structured envelope with decision, settlement state, tx refs, and metadata.
+
 ---
 
 ## 3) On-Chain Integration Map
@@ -75,6 +126,7 @@ Workflow reads/writes these contracts (per chain):
 Cross-chain:
 - Initiation through source-chain `RescueExecutor`.
 - Completion via destination `CCIPReceiver` + destination `RescueExecutor`.
+- Demo relay transport via `MockCCIPRouter.deliverExternalMessage(...)` between Ethereum Sepolia and Base Sepolia.
 
 ---
 
@@ -101,10 +153,18 @@ type WorkflowConfig = {
     dailyWei: string;
   };
   rescue: {
+    mode: "TOP_UP" | "REPAY";      // one mode per execution
     sourceReserveFactorBps: number; // 2000 => keep 20% reserve
     maxSourcesPerPlan: number;      // e.g. 5
     tenderlyEnabled: boolean;
     tenderlyFailClosed: boolean;    // true in demo
+  };
+  crossChain: {
+    sourceChainSelector: string;    // e.g. "16015286601757825753" (Ethereum Sepolia)
+    destinationChainSelector: string; // e.g. "10344971235874465080" (Base Sepolia)
+    destinationReceiver: `0x${string}`;
+    relayMode: "MOCK_EXTERNAL_RELAY" | "NATIVE_CCIP";
+    maxPendingMinutes: number;      // pending reconciliation timeout
   };
   chains: Array<{
     name: string;
@@ -175,13 +235,15 @@ type RiskSnapshot = {
 };
 
 type RescueLeg = {
+  mode: "TOP_UP" | "REPAY";
   sourceChain: string;
   sourceProtocolId: string;
   targetChain: string;
   targetProtocolId: string;
-  collateralAsset: `0x${string}`;
-  debtAsset: `0x${string}`;
-  amount: bigint;
+  sourceWithdrawAsset: `0x${string}`;
+  sourceWithdrawAmount: bigint;
+  actionAsset: `0x${string}`;       // final asset consumed on target action
+  actionAmount: bigint;
   crossChain: boolean;
 };
 
@@ -221,7 +283,8 @@ type RescuePlan = {
 ## Step 3 - Rescue target sizing
 - Determine target endangered position(s), default lowest HF first.
 - Compute `targetHf = threshold.aggregateHf * recoveryBuffer`.
-- Estimate repay needed to move target toward `targetHf`.
+- If mode is `TOP_UP`, size collateral top-up needed to move target toward `targetHf`.
+- If mode is `REPAY`, size debt repay needed to move target toward `targetHf`.
 
 ## Step 4 - Source selection (same-chain first)
 - Candidate sources ordered by:
@@ -231,6 +294,10 @@ type RescuePlan = {
 - Per-source cap:
   - `withdrawable = min(availableCollateral, sourceLimitAfterReserve)`
 - Build legs until required repay covered or sources exhausted.
+- Mode constraints:
+  - `TOP_UP`: source-withdraw asset should match target collateral asset.
+  - `REPAY`: source-withdraw asset should match target debt asset (or a configured cross-chain token mapping that results in target debt asset on destination).
+  - No swap/conversion is assumed inside Reprieve executor.
 
 ## Step 5 - Plan validation
 - If no valid legs, emit no-action with reason.
@@ -347,17 +414,18 @@ Why this is tighter:
 ## 7) Core Logic: Execution
 
 Execution entry (HTTP primary handler):
-1. Check target chain/source chain `rescueInProgress[user]`.
-2. If already in progress, skip and emit monitor log.
+1. Check source-chain `rescueInProgress[user]` and workflow-managed pending state.
+2. If on-chain lock is set or pending state exists, skip and emit monitor log.
 3. Submit `executeRescue(plan)` on source `RescueExecutor`.
-4. Capture tx hash, execution id, and expected message path.
+4. Capture tx hash, execution id, and `ccipMessageId` if cross-chain initiated.
 5. Emit workflow output summary.
 
 Post-execution verification:
 - Read `RescueLog` entries for execution id.
 - Confirm same-chain complete OR cross-chain initiated.
 - For cross-chain:
-  - wait/reconcile via EVM log handler events.
+  - treat source completion as "dispatch accepted", not final settlement.
+  - wait/reconcile via EVM log handler events from destination side.
 
 ---
 
@@ -365,25 +433,35 @@ Post-execution verification:
 
 Required pattern:
 - Cross-chain legs must use programmable token transfer (`tokenAmounts` + payload `data`).
-- Payload includes at minimum:
-  - user
-  - executionId
-  - source protocol key
-  - target protocol key
-  - debt asset
-  - repay amount
-  - leg index
+- Payload fields must match deployed contracts (`ReprieveTypes.CCIPMessage`):
+  - `execId`
+  - `user`
+  - `mode`
+  - `targetAdapter`
+  - `asset`
+  - `amount`
+  - `timestamp`
+  - `deadline`
+- Destination execution must consume `destTokenAmounts[0]` as actual bridged asset/amount.
+- Do not assume payload asset address equals destination token address in cross-chain context.
 
 Success path:
 1. Source executor emits cross-chain initiated log.
 2. Destination receiver validates router/source/sender.
-3. Destination executor `completeCrossChainLeg(...)` repays target.
-4. `RescueLog` records completion.
+3. Destination executor `completeCrossChainLeg(...)` performs mode action (`supplyForRescue` or `repayForRescue`).
+4. Destination emits `CrossChainCompleted`.
+5. Workflow marks pending cross-chain item as settled.
+
+Demo two-network relay path:
+1. Source execute on chain A emits/stores `ccipMessageId`.
+2. Relay step delivers message on chain B (`cross-chain-rescue-relay` / mock relay).
+3. Destination receiver completes action and emits terminal event.
 
 Failure branches:
 - Source fail before send: no state mutation beyond logs.
 - Source fail after withdraw: escrow on source chain.
 - Destination business failure: escrow on destination chain.
+- Relay/delivery timeout (demo): treat as pending timeout and raise manual ops alert.
 - Workflow must classify and surface branch explicitly.
 
 ---
@@ -406,12 +484,14 @@ Failure branches:
   - stale data and lock-state watchdog
 
 ## EVM log triggers
-- Watch `RescueLog`/`RescueExecutor` events:
+- Watch `RescueLog`/`RescueExecutor`/`CCIPReceiver` events:
   - `RescueInitiated`
   - `CrossChainInitiated`
   - `RescueCompleted`
   - `RescueFailed`
-  - `Escrowed`
+  - `CrossChainCompleted`
+  - `CrossChainDestinationFailed`
+  - `EscrowCreated`
 - Purpose:
   - faster reconciliation than pure cron polling
   - recovery action routing (claim/retry candidate detection)
@@ -431,6 +511,7 @@ Callbacks are stateless, so idempotency is derived from on-chain state and deter
 - Before submitting, check:
   - `rescueInProgress[user] == false`
   - no existing completed `RescueLog` for same execution id
+  - no unresolved pending `ccipMessageId` tracked by workflow for that user/strategy
 
 Retry policy:
 - transient RPC/API errors: bounded retry with jitter-less backoff suitable for WASM runtime
@@ -448,6 +529,7 @@ Each callback should output structured summary:
 - decision (`NO_ACTION`, `RESCUE_SAME_CHAIN`, `RESCUE_CROSS_CHAIN`, `ABORT`)
 - tx hash/message id when applicable
 - failure class when applicable
+- cross-chain settlement state (`DISPATCHED`, `DELIVERED_SUCCESS`, `DELIVERED_FAILED`, `TIMEOUT`)
 
 Recommended on-chain/off-chain correlation keys:
 - `executionId`
@@ -469,7 +551,7 @@ Recommended on-chain/off-chain correlation keys:
 - http no-action path (healthy portfolio)
 - http same-chain rescue path
 - http multi-source fallback path (>2 positions)
-- http cross-chain path success
+- http cross-chain path success (`execute` + `relay` + destination completion)
 - cron watchdog no-action path
 - source-failure and destination-failure classification paths
 
@@ -487,6 +569,8 @@ Recommended on-chain/off-chain correlation keys:
 - Keep payload sizes small and deterministic.
 - No hidden mutable off-chain state required for correctness.
 - Always assume a callback can run again before previous cross-chain flow finalizes; lock checks are mandatory.
+- Never interpret source `RescueStatus.Completed` alone as cross-chain terminal success.
+- Use destination events (`CrossChainCompleted`/`CrossChainDestinationFailed` + escrow events) as final cross-chain settlement truth.
 
 ---
 
