@@ -1,0 +1,11 @@
+{
+    "chainId": 11155111,
+    "contracts": {
+        "WorkflowReceiver": "0x8F562980983Cb710c943617452C5aF158641e126",
+        "RescueExecutor": "0xd2ade981e8db77250DE58ee241529143435E234F"
+    },
+    "wiring": {
+        "forwarder": "0x15fC6ae953E024d975e77382eEeC56A9101f9F88",
+        "authorizedOnExecutor": true
+    }
+}

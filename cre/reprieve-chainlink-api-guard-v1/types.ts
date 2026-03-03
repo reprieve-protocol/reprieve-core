@@ -46,6 +46,7 @@ export interface TriggerConfig {
 export interface ContractConfig {
   rescueExecutor: string;
   rescueReporter: string;
+  workflowReceiver?: string;
   ccipReceiver: string;
 }
 
@@ -67,6 +68,7 @@ export interface RescuePolicyConfig {
   defaultMode: "TOP_UP" | "REPAY";
   allowCrossChain: boolean;
   reserveCapBps: number;
+  minActionUsd: number;
 }
 
 export interface CrossChainConfig {
@@ -94,6 +96,8 @@ export interface ChainlinkApiSourceConfig {
   priceApiPath: string;
   maxPriceAgeSec: number;
   integritySalt: string;
+  preferOnchainOracle?: boolean;
+  mockOracleAddress?: string;
   mockPricesUsd: Record<string, string>;
 }
 
@@ -319,6 +323,10 @@ const parseContracts = (value: unknown): ContractConfig => {
   return {
     rescueExecutor: requireString(value.rescueExecutor, "contracts.rescueExecutor"),
     rescueReporter: requireString(value.rescueReporter, "contracts.rescueReporter"),
+    workflowReceiver:
+      value.workflowReceiver === undefined
+        ? undefined
+        : requireString(value.workflowReceiver, "contracts.workflowReceiver"),
     ccipReceiver: requireString(value.ccipReceiver, "contracts.ccipReceiver"),
   };
 };
@@ -368,6 +376,10 @@ const parseRescuePolicy = (value: unknown): RescuePolicyConfig => {
     defaultMode,
     allowCrossChain: requireBoolean(value.allowCrossChain, "rescue.allowCrossChain"),
     reserveCapBps: requireNumber(value.reserveCapBps, "rescue.reserveCapBps", 1, 10000),
+    minActionUsd:
+      value.minActionUsd === undefined
+        ? 0
+        : requireNumber(value.minActionUsd, "rescue.minActionUsd", 0),
   };
 };
 
@@ -458,12 +470,26 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
     maxPriceAgeSec: requireNumber(
       value.maxPriceAgeSec,
       "dataSources.chainlinkApi.maxPriceAgeSec",
-      1
+      0
     ),
     integritySalt: requireString(
       value.integritySalt,
       "dataSources.chainlinkApi.integritySalt"
     ),
+    preferOnchainOracle:
+      value.preferOnchainOracle === undefined
+        ? undefined
+        : requireBoolean(
+            value.preferOnchainOracle,
+            "dataSources.chainlinkApi.preferOnchainOracle"
+          ),
+    mockOracleAddress:
+      value.mockOracleAddress === undefined
+        ? undefined
+        : requireString(
+            value.mockOracleAddress,
+            "dataSources.chainlinkApi.mockOracleAddress"
+          ),
     mockPricesUsd:
       value.mockPricesUsd === undefined
         ? {}

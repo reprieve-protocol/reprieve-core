@@ -241,6 +241,7 @@ var init_abiItem = __esm(() => {
     }
   };
 });
+var InvalidAbiParametersError;
 var InvalidParameterError;
 var SolidityProtectedKeywordError;
 var InvalidModifierError;
@@ -248,6 +249,20 @@ var InvalidFunctionModifierError;
 var InvalidAbiTypeParameterError;
 var init_abiParameter = __esm(() => {
   init_errors();
+  InvalidAbiParametersError = class InvalidAbiParametersError2 extends BaseError {
+    constructor({ params }) {
+      super("Failed to parse ABI parameters.", {
+        details: `parseAbiParameters(${JSON.stringify(params, null, 2)})`,
+        docsPath: "/api/human#parseabiparameters-1"
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidAbiParametersError"
+      });
+    }
+  };
   InvalidParameterError = class InvalidParameterError2 extends BaseError {
     constructor({ param }) {
       super("Invalid ABI parameter.", {
@@ -781,9 +796,43 @@ var init_parseAbi = __esm(() => {
   init_structs();
   init_utils();
 });
+function parseAbiParameters(params) {
+  const abiParameters = [];
+  if (typeof params === "string") {
+    const parameters = splitParameters(params);
+    const length = parameters.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      abiParameters.push(parseAbiParameter(parameters[i2], { modifiers }));
+    }
+  } else {
+    const structs = parseStructs(params);
+    const length = params.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      const signature = params[i2];
+      if (isStructSignature(signature))
+        continue;
+      const parameters = splitParameters(signature);
+      const length2 = parameters.length;
+      for (let k = 0;k < length2; k++) {
+        abiParameters.push(parseAbiParameter(parameters[k], { modifiers, structs }));
+      }
+    }
+  }
+  if (abiParameters.length === 0)
+    throw new InvalidAbiParametersError({ params });
+  return abiParameters;
+}
+var init_parseAbiParameters = __esm(() => {
+  init_abiParameter();
+  init_signatures();
+  init_structs();
+  init_utils();
+  init_utils();
+});
 var init_exports = __esm(() => {
   init_formatAbiItem();
   init_parseAbi();
+  init_parseAbiParameters();
 });
 function formatAbiItem2(abiItem, { includeName = false } = {}) {
   if (abiItem.type !== "function" && abiItem.type !== "event" && abiItem.type !== "error")
@@ -17118,6 +17167,7 @@ var parseContracts = (value2) => {
   return {
     rescueExecutor: requireString(value2.rescueExecutor, "contracts.rescueExecutor"),
     rescueReporter: requireString(value2.rescueReporter, "contracts.rescueReporter"),
+    workflowReceiver: value2.workflowReceiver === undefined ? undefined : requireString(value2.workflowReceiver, "contracts.workflowReceiver"),
     ccipReceiver: requireString(value2.ccipReceiver, "contracts.ccipReceiver")
   };
 };
@@ -17155,7 +17205,8 @@ var parseRescuePolicy = (value2) => {
   return {
     defaultMode,
     allowCrossChain: requireBoolean(value2.allowCrossChain, "rescue.allowCrossChain"),
-    reserveCapBps: requireNumber(value2.reserveCapBps, "rescue.reserveCapBps", 1, 1e4)
+    reserveCapBps: requireNumber(value2.reserveCapBps, "rescue.reserveCapBps", 1, 1e4),
+    minActionUsd: value2.minActionUsd === undefined ? 0 : requireNumber(value2.minActionUsd, "rescue.minActionUsd", 0)
   };
 };
 var parseCrossChain = (value2) => {
@@ -17202,8 +17253,10 @@ var parseChainlinkApiSource = (value2) => {
   return {
     priceApiBaseUrl: requireString(value2.priceApiBaseUrl, "dataSources.chainlinkApi.priceApiBaseUrl"),
     priceApiPath: requireString(value2.priceApiPath, "dataSources.chainlinkApi.priceApiPath"),
-    maxPriceAgeSec: requireNumber(value2.maxPriceAgeSec, "dataSources.chainlinkApi.maxPriceAgeSec", 1),
+    maxPriceAgeSec: requireNumber(value2.maxPriceAgeSec, "dataSources.chainlinkApi.maxPriceAgeSec", 0),
     integritySalt: requireString(value2.integritySalt, "dataSources.chainlinkApi.integritySalt"),
+    preferOnchainOracle: value2.preferOnchainOracle === undefined ? undefined : requireBoolean(value2.preferOnchainOracle, "dataSources.chainlinkApi.preferOnchainOracle"),
+    mockOracleAddress: value2.mockOracleAddress === undefined ? undefined : requireString(value2.mockOracleAddress, "dataSources.chainlinkApi.mockOracleAddress"),
     mockPricesUsd: value2.mockPricesUsd === undefined ? {} : parseStringNumberMap(value2.mockPricesUsd, "dataSources.chainlinkApi.mockPricesUsd")
   };
 };
@@ -17515,6 +17568,7 @@ function decodeTopic({ param, value: value2 }) {
 }
 var zeroAddress = "0x0000000000000000000000000000000000000000";
 init_decodeFunctionResult();
+init_encodeAbiParameters();
 init_encodeFunctionData();
 init_toBytes();
 init_keccak256();
@@ -17529,6 +17583,9 @@ var RESCUE_EXECUTOR_ABI = parseAbi([
   "function getCcipMessageId(bytes32 execId) view returns (bytes32)",
   "function executeRescue((bytes32 execId,address user,uint8 mode,(uint256 stepIndex,address sourceAdapter,address targetAdapter,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,bool isCrossChain,uint64 targetChain)[] steps,uint256 deadline,uint256 maxFee) plan) returns (bool success)"
 ]);
+var RESCUE_PLAN_REPORT_PARAMS = parseAbiParameters([
+  "(bytes32,address,uint8,(uint256,address,address,address,address,uint256,uint256,bool,uint64)[],uint256,uint256)"
+]);
 var RESCUE_LOG_ABI = parseAbi([
   "function getLogEntries(bytes32 execId) view returns ((bytes32 execId,uint256 stepIndex,address user,uint8 status,uint256 timestamp,string details)[] entries)"
 ]);
@@ -17537,6 +17594,9 @@ var CCIP_RECEIVER_ABI = parseAbi([
 ]);
 var ERC20_METADATA_ABI = parseAbi([
   "function decimals() view returns (uint8)"
+]);
+var MOCK_PRICE_ORACLE_ABI = parseAbi([
+  "function getPrice(address asset) view returns (uint256 price,uint256 timestamp)"
 ]);
 var REPRIEVE_EVENT_ABI = parseAbi([
   "event RescueInitiated(bytes32 indexed execId,address indexed user,uint256 steps,uint256 deadline)",
@@ -17547,12 +17607,6 @@ var REPRIEVE_EVENT_ABI = parseAbi([
   "event CrossChainDestinationFailed(bytes32 indexed execId,bytes32 indexed ccipMessageId,string reason)",
   "event LogEntryAdded(bytes32 indexed execId,uint256 indexed stepIndex,address indexed user,uint8 status,string details)"
 ]);
-var normalizeTxHash = (input) => {
-  if (input.startsWith("0x")) {
-    return input;
-  }
-  return `0x${Buffer.from(input, "base64").toString("hex")}`;
-};
 var createEvmClient = (chain) => {
   const network248 = getNetwork({
     chainFamily: "evm",
@@ -17577,7 +17631,7 @@ var readContract = (runtime2, chain, contractAddress, abi, functionName, args = 
       to: contractAddress,
       data: calldata
     }),
-    blockNumber: LAST_FINALIZED_BLOCK_NUMBER
+    blockNumber: LATEST_BLOCK_NUMBER
   }).result();
   return decodeFunctionResult({
     abi,
@@ -17585,30 +17639,71 @@ var readContract = (runtime2, chain, contractAddress, abi, functionName, args = 
     data: bytesToHex(response.data)
   });
 };
-var writeContract = (runtime2, chain, contractAddress, abi, functionName, args = [], gasLimit = "900000") => {
-  const evmClient = createEvmClient(chain);
-  const calldata = encodeFunctionData({
-    abi,
-    functionName,
-    args
-  });
-  const result = evmClient.write({
-    contractAddress: hexToBase64(contractAddress),
-    calldata: hexToBase64(calldata)
-  }, { gasLimit });
-  if (!result.transactionHash) {
-    throw new Error(`No transaction hash returned for ${functionName}`);
-  }
-  return normalizeTxHash(result.transactionHash);
-};
 var discoverPositions = (runtime2, chain, adapterAddress, user) => readContract(runtime2, chain, adapterAddress, ADAPTER_ABI, "discoverPositions", [user]);
 var readHealthFactor = (runtime2, chain, adapterAddress, user) => readContract(runtime2, chain, adapterAddress, ADAPTER_ABI, "healthFactor", [user]);
 var readAvailableCollateral = (runtime2, chain, adapterAddress, user, asset) => readContract(runtime2, chain, adapterAddress, ADAPTER_ABI, "availableCollateral", [user, asset]);
 var readTokenDecimals = (runtime2, chain, tokenAddress) => Number(readContract(runtime2, chain, tokenAddress, ERC20_METADATA_ABI, "decimals", []));
+var readMockOraclePrice = (runtime2, chain, oracleAddress, asset) => {
+  const result = readContract(runtime2, chain, oracleAddress, MOCK_PRICE_ORACLE_ABI, "getPrice", [asset]);
+  if ("price" in result) {
+    const named = result;
+    return {
+      priceWad: named.price,
+      updatedAt: Number(named.timestamp)
+    };
+  }
+  const tuple = result;
+  return {
+    priceWad: tuple[0],
+    updatedAt: Number(tuple[1])
+  };
+};
 var readRescueInProgress = (runtime2, chain, executorAddress, user) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "rescueInProgress", [user]);
 var readRescueStatus = (runtime2, chain, executorAddress, execId) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "getRescueStatus", [execId]);
 var readCcipMessageId = (runtime2, chain, executorAddress, execId) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "getCcipMessageId", [execId]);
-var submitRescuePlan = (runtime2, chain, executorAddress, plan, gasLimit = "1200000") => writeContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "executeRescue", [plan], gasLimit);
+var encodeRescuePlanReport = (plan) => encodeAbiParameters(RESCUE_PLAN_REPORT_PARAMS, [
+  [
+    plan.execId,
+    plan.user,
+    plan.mode,
+    plan.steps.map((step) => [
+      step.stepIndex,
+      step.sourceAdapter,
+      step.targetAdapter,
+      step.collateralAsset,
+      step.debtAsset,
+      step.collateralAmount,
+      step.debtAmount,
+      step.isCrossChain,
+      step.targetChain
+    ]),
+    plan.deadline,
+    plan.maxFee
+  ]
+]);
+var submitRescuePlanReport = (runtime2, chain, workflowReceiverAddress, plan, gasLimit = "1200000") => {
+  const evmClient = createEvmClient(chain);
+  const reportPayload = encodeRescuePlanReport(plan);
+  runtime2.log("Submitting rescue report");
+  runtime2.log(`Report receiver: ${workflowReceiverAddress}`);
+  runtime2.log(`Execution id: ${plan.execId}`);
+  const reportResponse = runtime2.report({
+    encodedPayload: hexToBase64(reportPayload),
+    encoderName: "evm",
+    signingAlgo: "ecdsa",
+    hashingAlgo: "keccak256"
+  }).result();
+  const writeResult = evmClient.writeReport(runtime2, {
+    receiver: workflowReceiverAddress,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit
+    }
+  }).result();
+  const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32));
+  runtime2.log(`Rescue report submitted. Tx: ${txHash}`);
+  return txHash;
+};
 var readFailedMessage = (runtime2, chain, ccipReceiverAddress, messageId) => readContract(runtime2, chain, ccipReceiverAddress, CCIP_RECEIVER_ABI, "getFailedMessage", [messageId]);
 var decodeReprieveEvent = (log) => {
   const topics = log.topics.map((item) => bytesToHex(item));
@@ -17652,6 +17747,7 @@ var decodeCrossChainTerminalEvent = (log) => {
 var WAD = 10n ** 18n;
 var BPS_DENOM = 10000n;
 var MAX_PENALTY_BPS = 9000n;
+var MAX_HF_WAD = 2n ** 255n - 1n;
 var parseUsdToWad = (value2) => {
   const trimmed = value2.trim();
   if (!/^\d+(\.\d+)?$/.test(trimmed)) {
@@ -17660,6 +17756,29 @@ var parseUsdToWad = (value2) => {
   const [whole, frac = ""] = trimmed.split(".");
   const fracPadded = `${frac}000000000000000000`.slice(0, 18);
   return BigInt(whole) * WAD + BigInt(fracPadded);
+};
+var formatUnits = (value2, decimals, fractionDigits = 4) => {
+  const sign = value2 < 0n ? "-" : "";
+  const abs = value2 < 0n ? -value2 : value2;
+  const base = 10n ** BigInt(decimals);
+  const whole = abs / base;
+  const fractionRaw = abs % base;
+  if (fractionDigits <= 0) {
+    return `${sign}${whole.toString()}`;
+  }
+  const padded = fractionRaw.toString().padStart(decimals, "0");
+  const sliced = padded.slice(0, Math.min(fractionDigits, decimals));
+  const trimmed = sliced.replace(/0+$/, "");
+  if (trimmed.length === 0) {
+    return `${sign}${whole.toString()}`;
+  }
+  return `${sign}${whole.toString()}.${trimmed}`;
+};
+var formatHf = (hfWad) => {
+  if (hfWad >= MAX_HF_WAD / 2n) {
+    return "INF";
+  }
+  return formatUnits(hfWad, 18, 4);
 };
 var bpsToWad = (bps) => BigInt(bps) * 10n ** 14n;
 var buildIntegrityHash = (asset, priceUsd, updatedAt, integritySalt) => keccak256(toBytes(`${asset.toLowerCase()}|${priceUsd}|${updatedAt}|${integritySalt}`));
@@ -17717,22 +17836,69 @@ var loadApiReports = (runtime2, config, assets) => {
   }, consensusIdenticalAggregation())().result();
   return normalizeApiReports(raw, Math.floor(Date.now() / 1000));
 };
-var loadReportsWithFallback = (runtime2, config, assets) => {
-  try {
-    const fromApi = loadApiReports(runtime2, config, assets);
-    if (fromApi.length > 0) {
-      return fromApi;
+var loadReportsWithFallback = (runtime2, config, chain, assets) => {
+  const onchainOracle = config.dataSources.chainlinkApi.mockOracleAddress;
+  const preferOnchainOracle = config.dataSources.chainlinkApi.preferOnchainOracle ?? false;
+  const loadOnchainOracleReports = () => {
+    if (!onchainOracle)
+      return [];
+    const reports = [];
+    for (const asset of assets) {
+      try {
+        const { priceWad, updatedAt } = readMockOraclePrice(runtime2, chain, onchainOracle, asset);
+        runtime2.log(`On-chain oracle read for ${asset}: price=${formatUnits(priceWad, 18)} updatedAt=${updatedAt}`);
+        if (priceWad <= 0n || updatedAt <= 0) {
+          continue;
+        }
+        reports.push({
+          asset: asset.toLowerCase(),
+          priceUsd: formatUnits(priceWad, 18, 8),
+          updatedAt,
+          source: "oracle"
+        });
+      } catch (error) {
+        runtime2.log(`On-chain oracle read failed for ${asset}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
-  } catch (error) {
-    runtime2.log(`Price API fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+    return reports;
+  };
+  const loadApiReportsSafe = () => {
+    try {
+      return loadApiReports(runtime2, config, assets);
+    } catch (error) {
+      runtime2.log(`Price API fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  };
+  const reportMap = new Map;
+  const seedReports = (reports) => {
+    for (const report2 of reports) {
+      const key = report2.asset.toLowerCase();
+      if (!reportMap.has(key)) {
+        reportMap.set(key, report2);
+      }
+    }
+  };
+  if (preferOnchainOracle) {
+    seedReports(loadOnchainOracleReports());
+    if (reportMap.size < assets.length) {
+      seedReports(loadApiReportsSafe());
+    }
+  } else {
+    seedReports(loadApiReportsSafe());
+    if (reportMap.size < assets.length) {
+      seedReports(loadOnchainOracleReports());
+    }
   }
   const nowTs = Math.floor(Date.now() / 1000);
-  const fallback = [];
   for (const asset of assets) {
+    const key = asset.toLowerCase();
+    if (reportMap.has(key))
+      continue;
     const priceUsd = config.dataSources.chainlinkApi.mockPricesUsd[asset.toLowerCase()];
     if (priceUsd) {
-      fallback.push({
-        asset,
+      reportMap.set(key, {
+        asset: key,
         priceUsd,
         updatedAt: nowTs,
         source: "mock",
@@ -17740,7 +17906,7 @@ var loadReportsWithFallback = (runtime2, config, assets) => {
       });
     }
   }
-  return fallback;
+  return Array.from(reportMap.values());
 };
 var computeShockBps = (report2) => {
   if (!report2.prevPriceUsd)
@@ -17752,17 +17918,17 @@ var computeShockBps = (report2) => {
   const diff = nowWad > prevWad ? nowWad - prevWad : prevWad - nowWad;
   return Number(diff * BPS_DENOM / prevWad);
 };
-var evaluateDecision = (effectiveHfWad, config, snapshots) => {
+var evaluateDecision = (weakestEffectiveHfWad, config, snapshots) => {
   const minHfWad = bpsToWad(config.thresholds.onchainHfMinBps);
   const earlyHfWad = bpsToWad(config.thresholds.earlyWarningHfBps);
   const prefersCrossChain = snapshots.some((s) => s.preferCrossChain);
-  if (effectiveHfWad <= minHfWad) {
+  if (weakestEffectiveHfWad <= minHfWad) {
     if (config.rescue.allowCrossChain && prefersCrossChain) {
       return "RESCUE_CROSS_CHAIN";
     }
     return "RESCUE_SAME_CHAIN";
   }
-  if (effectiveHfWad <= earlyHfWad) {
+  if (weakestEffectiveHfWad <= earlyHfWad) {
     return "RESCUE_SAME_CHAIN";
   }
   return "NO_ACTION";
@@ -17800,6 +17966,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     });
   }
   if (snapshots.length === 0) {
+    runtime2.log("[V1] No positions discovered for monitored adapters.");
     return {
       decision: "ABORT",
       reason: "No positions found for monitored adapters",
@@ -17818,7 +17985,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       uniqueAssets.add(p.debtAsset);
     }
   }
-  const reports = loadReportsWithFallback(runtime2, config, Array.from(uniqueAssets));
+  const reports = loadReportsWithFallback(runtime2, config, chain, Array.from(uniqueAssets));
   const priceByAsset = {};
   const reportMap = new Map;
   for (const report2 of reports) {
@@ -17831,14 +17998,22 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
   let maxShockBps = 0;
   let maxStalenessPenaltyBps = 0n;
   const nowSec = Math.floor(Date.now() / 1000);
+  const maxPriceAgeSec = config.dataSources.chainlinkApi.maxPriceAgeSec;
+  const stalenessChecksEnabled = maxPriceAgeSec > 0;
+  if (!stalenessChecksEnabled) {
+    runtime2.log("[V1] Staleness checks disabled (maxPriceAgeSec=0).");
+  }
   for (const asset of uniqueAssets) {
     const report2 = reportMap.get(asset.toLowerCase());
     if (!report2) {
+      runtime2.log(`[V1][price] missing asset=${asset}`);
       missingPriceCount += 1;
       continue;
     }
     const ageSec = nowSec - report2.updatedAt;
-    if (ageSec > config.dataSources.chainlinkApi.maxPriceAgeSec) {
+    const shock = computeShockBps(report2);
+    runtime2.log(`[V1][price] asset=${asset} priceUsd=${report2.priceUsd} source=${report2.source} ageSec=${ageSec} shockBps=${shock}`);
+    if (stalenessChecksEnabled && ageSec > maxPriceAgeSec) {
       staleReportCount += 1;
       continue;
     }
@@ -17848,16 +18023,16 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
         continue;
       }
     }
-    const stalenessPenalty = BigInt(ageSec) * BigInt(config.thresholds.stalePricePenaltyBps) / BigInt(config.dataSources.chainlinkApi.maxPriceAgeSec);
+    const stalenessPenalty = stalenessChecksEnabled ? BigInt(ageSec) * BigInt(config.thresholds.stalePricePenaltyBps) / BigInt(maxPriceAgeSec) : 0n;
     if (stalenessPenalty > maxStalenessPenaltyBps) {
       maxStalenessPenaltyBps = stalenessPenalty;
     }
-    const shock = computeShockBps(report2);
     if (shock > maxShockBps) {
       maxShockBps = shock;
     }
   }
   if (missingPriceCount > 0 && config.monitoring.abortOnMissingPrice) {
+    runtime2.log(`[V1] Abort: missing prices for ${missingPriceCount} assets.`);
     return {
       decision: "ABORT",
       reason: `Missing prices for ${missingPriceCount} assets`,
@@ -17866,7 +18041,8 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       priceByAsset
     };
   }
-  if (staleReportCount > 0) {
+  if (stalenessChecksEnabled && staleReportCount > 0) {
+    runtime2.log(`[V1] Abort: stale reports count=${staleReportCount}.`);
     return {
       decision: "ABORT",
       reason: `Stale reports detected: ${staleReportCount}`,
@@ -17876,6 +18052,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     };
   }
   if (invalidReportCount > 0) {
+    runtime2.log(`[V1] Abort: integrity verification failures=${invalidReportCount}.`);
     return {
       decision: "ABORT",
       reason: `Integrity verification failed for ${invalidReportCount} reports`,
@@ -17885,6 +18062,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     };
   }
   if (maxShockBps >= config.monitoring.priceShockAbortBps) {
+    runtime2.log(`[V1] Abort: max shock ${maxShockBps} bps exceeded threshold ${config.monitoring.priceShockAbortBps} bps.`);
     return {
       decision: "ABORT",
       reason: `Price shock exceeded abort threshold (${maxShockBps} bps)`,
@@ -17911,6 +18089,10 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
   };
   let totalEffectiveCollateralUsdWad = 0n;
   let totalDebtUsdWad = 0n;
+  let positionsAnalyzed = 0;
+  let weakestDebtHfWad = MAX_HF_WAD;
+  let weakestPositionLabel = "";
+  runtime2.log(`[V1] User=${user} adaptersWithPositions=${snapshots.length}`);
   for (const snap of snapshots) {
     for (const p of snap.positions) {
       const collateralAsset = p.collateralAsset.toLowerCase();
@@ -17927,24 +18109,45 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       const collateralUsdWad = p.collateralAmount * collateralPriceWad / 10n ** BigInt(collateralDecimals);
       const debtUsdWad = p.debtAmount * debtPriceWad / 10n ** BigInt(debtDecimals);
       const effectiveCollateralUsdWad = collateralUsdWad * p.liquidationThresholdBps / BPS_DENOM;
+      const positionHfWad = debtUsdWad == 0n ? MAX_HF_WAD : effectiveCollateralUsdWad * WAD / debtUsdWad;
+      if (debtUsdWad > 0n && positionHfWad < weakestDebtHfWad) {
+        weakestDebtHfWad = positionHfWad;
+        weakestPositionLabel = snap.label;
+      }
       totalEffectiveCollateralUsdWad += effectiveCollateralUsdWad;
       totalDebtUsdWad += debtUsdWad;
+      positionsAnalyzed += 1;
+      runtime2.log(`[V1][position] adapter=${snap.label} collAsset=${collateralAsset} debtAsset=${debtAsset} collAmt=${formatUnits(p.collateralAmount, collateralDecimals, 4)} debtAmt=${formatUnits(p.debtAmount, debtDecimals, 4)} collUsd=${formatUnits(collateralUsdWad, 18, 2)} debtUsd=${formatUnits(debtUsdWad, 18, 2)} effCollUsd=${formatUnits(effectiveCollateralUsdWad, 18, 2)} positionHF=${formatHf(positionHfWad)}`);
     }
   }
-  const aggregateHfWad = totalDebtUsdWad === 0n ? 2n ** 255n - 1n : totalEffectiveCollateralUsdWad * WAD / totalDebtUsdWad;
+  const aggregateHfWad = totalDebtUsdWad === 0n ? MAX_HF_WAD : totalEffectiveCollateralUsdWad * WAD / totalDebtUsdWad;
   const slopePenaltyBps = BigInt(Math.min(config.thresholds.slopePenaltyBps, Math.floor(maxShockBps / 2)));
   const totalPenaltyBps = maxStalenessPenaltyBps + slopePenaltyBps > MAX_PENALTY_BPS ? MAX_PENALTY_BPS : maxStalenessPenaltyBps + slopePenaltyBps;
   const effectiveHfWad = aggregateHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
-  const decision = evaluateDecision(effectiveHfWad, config, snapshots);
+  const weakestEffectiveHfWad = weakestDebtHfWad >= MAX_HF_WAD / 2n ? MAX_HF_WAD : weakestDebtHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
+  const decision = evaluateDecision(weakestEffectiveHfWad, config, snapshots);
+  const aggregateHf = formatHf(aggregateHfWad);
+  const effectiveHf = formatHf(effectiveHfWad);
+  const weakestHf = formatHf(weakestDebtHfWad);
+  const weakestEffectiveHf = formatHf(weakestEffectiveHfWad);
+  const totalEffectiveCollateralUsd = formatUnits(totalEffectiveCollateralUsdWad, 18, 2);
+  const totalDebtUsd = formatUnits(totalDebtUsdWad, 18, 2);
+  runtime2.log(`[V1][summary] positions=${positionsAnalyzed} totalEffectiveCollUsd=${totalEffectiveCollateralUsd} totalDebtUsd=${totalDebtUsd} aggregateHF=${aggregateHf} weakestHF=${weakestHf} stalenessPenaltyBps=${Number(maxStalenessPenaltyBps)} slopePenaltyBps=${Number(slopePenaltyBps)} effectiveHF=${effectiveHf} weakestEffectiveHF=${weakestEffectiveHf} decision=${decision}`);
   return {
     decision,
-    reason: `Guard evaluated with effective HF ${effectiveHfWad.toString()}`,
+    reason: `Guard evaluated with weakest effective HF ${weakestEffectiveHf} (aggregate ${effectiveHf})`,
     metadata: {
       user,
       adaptersMonitored: snapshots.length,
+      positionsAnalyzed,
       reportsUsed: reports.length,
-      aggregateHfWad: aggregateHfWad.toString(),
-      effectiveHfWad: effectiveHfWad.toString(),
+      aggregateHf,
+      effectiveHf,
+      weakestHf,
+      weakestEffectiveHf,
+      weakestPositionLabel,
+      totalEffectiveCollateralUsd,
+      totalDebtUsd,
       stalenessPenaltyBps: Number(maxStalenessPenaltyBps),
       slopePenaltyBps: Number(slopePenaltyBps),
       maxShockBps,
@@ -17992,15 +18195,20 @@ var asBoolean = (value2) => {
     return false;
   return;
 };
+var asNumber = (value2) => {
+  if (typeof value2 === "number" && Number.isFinite(value2))
+    return value2;
+  if (typeof value2 === "string" && value2.trim().length > 0) {
+    const parsed = Number(value2);
+    if (Number.isFinite(parsed))
+      return parsed;
+  }
+  return;
+};
 var asRunMode = (value2, fallback) => {
   if (value2 === "execute" || value2 === "monitor_only" || value2 === "dry_run") {
     return value2;
   }
-  return fallback;
-};
-var asRescueMode = (value2, fallback) => {
-  if (value2 === "TOP_UP" || value2 === "REPAY")
-    return value2;
   return fallback;
 };
 var modeToEnum = (mode) => mode === "TOP_UP" ? 0 : 1;
@@ -18009,6 +18217,16 @@ var toUsdWad = (amount, decimals, priceUsdWad) => {
   if (amount <= 0n || priceUsdWad <= 0n)
     return 0n;
   return amount * priceUsdWad / 10n ** BigInt(decimals);
+};
+var wadToFixed = (wad, fractionDigits = 4) => {
+  const sign = wad < 0n ? "-" : "";
+  const abs = wad < 0n ? -wad : wad;
+  const whole = abs / WAD2;
+  if (fractionDigits <= 0)
+    return `${sign}${whole.toString()}`;
+  const fracBase = 10n ** BigInt(18 - fractionDigits);
+  const frac = abs % WAD2 / fracBase;
+  return `${sign}${whole.toString()}.${frac.toString().padStart(fractionDigits, "0")}`;
 };
 var fromUsdWadToAmount = (usdWad, decimals, priceUsdWad) => {
   if (usdWad <= 0n || priceUsdWad <= 0n)
@@ -18035,6 +18253,25 @@ var flattenPositions = (snapshots) => {
     }
   }
   return flat;
+};
+var inferRescueModeFromPositions = (source, target) => {
+  const srcCollateral = source.position.collateralAsset.toLowerCase();
+  const srcDebt = source.position.debtAsset.toLowerCase();
+  const tgtCollateral = target.position.collateralAsset.toLowerCase();
+  const tgtDebt = target.position.debtAsset.toLowerCase();
+  if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
+    return "TOP_UP";
+  }
+  if (srcCollateral === tgtDebt && srcDebt === tgtCollateral) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtDebt) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtCollateral) {
+    return "TOP_UP";
+  }
+  return;
 };
 var describePlan = (step, mode, execId) => JSON.stringify({
   execId,
@@ -18091,6 +18328,13 @@ var statusLabel = (status) => {
     return "Cancelled";
   return `Unknown(${status.toString()})`;
 };
+var normalizeStatus = (value2) => {
+  if (typeof value2 === "bigint")
+    return value2;
+  if (typeof value2 === "number")
+    return BigInt(Math.trunc(value2));
+  return BigInt(value2);
+};
 var toExecutionId = (provided, strategyId, user, mode, trigger) => {
   if (provided)
     return provided;
@@ -18110,17 +18354,17 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
   const chain = { chainSelectorName: config.chainSelectorName, isTestnet: config.isTestnet };
   const user = asAddress(body.user) ?? config.monitoring.defaultUser;
   const runMode = asRunMode(body.runMode, trigger === "http" ? "execute" : "monitor_only");
-  const mode = asRescueMode(body.rescueMode, config.rescue.defaultMode);
-  const execId = toExecutionId(asBytes32(body.executionId), config.strategyId, user, mode, trigger);
+  const providedExecutionId = asBytes32(body.executionId);
   const maxFee = asBigInt(body.maxFeeWei) ?? BigInt(config.budget.maxNativeFeeWei);
   const deadlineSec = Number(asBigInt(body.deadlineSeconds) ?? BigInt(config.crossChain.deliveryTimeoutSec));
   const nowSec = Math.floor(Date.now() / 1000);
+  const baseExecId = toExecutionId(providedExecutionId, config.strategyId, user, config.rescue.defaultMode, trigger);
   const guard = evaluateChainlinkApiGuard(runtime2, config, user);
   if (guard.decision === "ABORT" || guard.decision === "NO_ACTION") {
-    return buildNoAction(config.strategyId, trigger, execId, guard.decision, guard.reason, {
+    return buildNoAction(config.strategyId, trigger, baseExecId, guard.decision, guard.reason, {
       user,
       runMode,
-      rescueMode: mode,
+      rescueModePolicy: "AUTO_INFERRED",
       ...guard.metadata
     });
   }
@@ -18128,26 +18372,106 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
   try {
     inProgress = readRescueInProgress(runtime2, chain, config.contracts.rescueExecutor, user);
   } catch (error) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue lock state", {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Unable to read rescue lock state", {
       user,
       runMode,
       error: error instanceof Error ? error.message : String(error)
     });
   }
   if (inProgress) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Rescue already in progress for user", {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Rescue already in progress for user", {
       user,
       runMode,
-      rescueMode: mode
+      rescueModePolicy: "AUTO_INFERRED"
     });
   }
+  const pendingExecId = asBytes32(body.pendingExecId);
+  if (pendingExecId) {
+    let pendingStatus = 0n;
+    let pendingMessageId = ZERO_BYTES32;
+    try {
+      pendingStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, pendingExecId));
+      pendingMessageId = readCcipMessageId(runtime2, chain, config.contracts.rescueExecutor, pendingExecId);
+    } catch {}
+    if (pendingStatus === 2n && pendingMessageId !== ZERO_BYTES32) {
+      return buildNoAction(config.strategyId, trigger, baseExecId, "NO_ACTION", "Pending cross-chain settlement exists", {
+        user,
+        runMode,
+        pendingExecId,
+        pendingMessageId
+      }, "DISPATCHED");
+    }
+  }
+  const allFlat = flattenPositions(guard.snapshots);
+  const debtBearing = allFlat.filter((p) => p.position.debtAmount > 0n);
+  if (debtBearing.length === 0) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No debt-bearing positions found for rescue planning", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  debtBearing.sort(sortByRiskAscending);
+  const targetAdapterOverride = asAddress(body.targetAdapter);
+  const sourceAdapterOverride = asAddress(body.sourceAdapter);
+  const forceCrossChain = asBoolean(body.forceCrossChain) ?? false;
+  const target = debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ?? debtBearing[0];
+  const sourcePool = allFlat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n);
+  const sourceCandidates = [];
+  for (const source2 of sourcePool) {
+    const inferred = inferRescueModeFromPositions(source2, target);
+    if (!inferred)
+      continue;
+    sourceCandidates.push({ source: source2, mode: inferred });
+  }
+  if (sourceCandidates.length === 0) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No compatible rescue source with withdrawable collateral", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  const sameChainSources = sourceCandidates.filter((c) => !c.source.preferCrossChain);
+  const crossChainSources = sourceCandidates.filter((c) => c.source.preferCrossChain || !!c.source.rescueTargetChainSelector);
+  const chooseHighestCollateral = (list) => {
+    let best;
+    for (const item of list) {
+      if (sourceAdapterOverride && item.source.adapterAddress !== sourceAdapterOverride)
+        continue;
+      if (!best || item.source.availableCollateral > best.source.availableCollateral)
+        best = item;
+    }
+    return best;
+  };
+  let useCrossChain = false;
+  let selected = chooseHighestCollateral(sameChainSources);
+  if (!selected || forceCrossChain) {
+    if (config.rescue.allowCrossChain) {
+      const preferred = chooseHighestCollateral(crossChainSources);
+      if (preferred) {
+        selected = preferred;
+        useCrossChain = true;
+      }
+    }
+  }
+  if (!selected) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No eligible source after same-chain-first selection", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  const source = selected.source;
+  const mode = selected.mode;
+  const execId = toExecutionId(providedExecutionId, config.strategyId, user, mode, trigger);
   let existingStatus = 0n;
   try {
-    existingStatus = readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId);
+    existingStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId));
   } catch (error) {
     return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue status", {
       user,
       runMode,
+      rescueMode: mode,
       error: error instanceof Error ? error.message : String(error)
     });
   }
@@ -18157,74 +18481,6 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       runMode,
       rescueMode: mode,
       status: statusLabel(existingStatus)
-    });
-  }
-  const pendingExecId = asBytes32(body.pendingExecId);
-  if (pendingExecId) {
-    let pendingStatus = 0n;
-    let pendingMessageId = ZERO_BYTES32;
-    try {
-      pendingStatus = readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, pendingExecId);
-      pendingMessageId = readCcipMessageId(runtime2, chain, config.contracts.rescueExecutor, pendingExecId);
-    } catch {}
-    if (pendingStatus === 2n && pendingMessageId !== ZERO_BYTES32) {
-      return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Pending cross-chain settlement exists", {
-        user,
-        runMode,
-        pendingExecId,
-        pendingMessageId
-      }, "DISPATCHED");
-    }
-  }
-  const flat = flattenPositions(guard.snapshots).filter((p) => p.position.debtAmount > 0n);
-  if (flat.length === 0) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No debt-bearing positions found for rescue planning", {
-      user,
-      runMode,
-      rescueMode: mode
-    });
-  }
-  flat.sort(sortByRiskAscending);
-  const targetAdapterOverride = asAddress(body.targetAdapter);
-  const sourceAdapterOverride = asAddress(body.sourceAdapter);
-  const forceCrossChain = asBoolean(body.forceCrossChain) ?? false;
-  const target = flat.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ?? flat[0];
-  const sourcePool = flat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n);
-  if (sourcePool.length === 0) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No rescue source with withdrawable collateral", {
-      user,
-      runMode,
-      rescueMode: mode
-    });
-  }
-  const sameChainSources = sourcePool.filter((p) => !p.preferCrossChain && !p.rescueTargetChainSelector);
-  const crossChainSources = sourcePool.filter((p) => p.preferCrossChain || !!p.rescueTargetChainSelector);
-  const chooseHighestCollateral = (list) => {
-    let best;
-    for (const item of list) {
-      if (sourceAdapterOverride && item.adapterAddress !== sourceAdapterOverride)
-        continue;
-      if (!best || item.availableCollateral > best.availableCollateral)
-        best = item;
-    }
-    return best;
-  };
-  let useCrossChain = false;
-  let source = chooseHighestCollateral(sameChainSources);
-  if (!source || forceCrossChain) {
-    if (config.rescue.allowCrossChain) {
-      const preferred = chooseHighestCollateral(crossChainSources);
-      if (preferred) {
-        source = preferred;
-        useCrossChain = true;
-      }
-    }
-  }
-  if (!source) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No eligible source after same-chain-first selection", {
-      user,
-      runMode,
-      rescueMode: mode
     });
   }
   const decimalsCache = new Map;
@@ -18266,14 +18522,39 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
   }
   const desiredAmount = asBigInt(body.transferAmount) ?? estimateNeededAction(mode, target, config.thresholds.earlyWarningHfBps, getPriceWad, getDecimals);
   const reserveSafeSource = source.availableCollateral * BigInt(1e4 - config.rescue.reserveCapBps) / BPS_DENOM2;
-  let actionAmount = minBigInt(desiredAmount, reserveSafeSource);
+  let sourceHfSafeCap = source.availableCollateral;
+  const sourceFloorHfBps = Number(asBigInt(body.sourceFloorHfBps) ?? BigInt(config.thresholds.earlyWarningHfBps));
+  if (sourceFloorHfBps > 0) {
+    const sourcePrice2 = getPriceWad(source.position.collateralAsset);
+    const sourceDebtPrice = getPriceWad(source.position.debtAsset);
+    if (sourcePrice2 && sourceDebtPrice && source.position.debtAmount > 0n) {
+      const sourceCollDecimals = getDecimals(source.position.collateralAsset);
+      const sourceDebtDecimals = getDecimals(source.position.debtAsset);
+      const sourceCollUsdWad = toUsdWad(source.position.collateralAmount, sourceCollDecimals, sourcePrice2);
+      const sourceDebtUsdWad = toUsdWad(source.position.debtAmount, sourceDebtDecimals, sourceDebtPrice);
+      const sourceEffectiveCollUsdWad = sourceCollUsdWad * source.position.liquidationThresholdBps / BPS_DENOM2;
+      const floorHfWad = BigInt(sourceFloorHfBps) * 10n ** 14n;
+      const minEffectiveCollAtFloorUsdWad = floorHfWad * sourceDebtUsdWad / WAD2;
+      if (source.position.liquidationThresholdBps == 0n || sourceEffectiveCollUsdWad <= minEffectiveCollAtFloorUsdWad) {
+        sourceHfSafeCap = 0n;
+      } else {
+        const headroomEffectiveUsdWad = sourceEffectiveCollUsdWad - minEffectiveCollAtFloorUsdWad;
+        const headroomCollateralUsdWad = headroomEffectiveUsdWad * BPS_DENOM2 / source.position.liquidationThresholdBps;
+        sourceHfSafeCap = fromUsdWadToAmount(headroomCollateralUsdWad, sourceCollDecimals, sourcePrice2);
+      }
+    }
+  }
+  let actionAmount = minBigInt(desiredAmount, minBigInt(reserveSafeSource, sourceHfSafeCap));
   const sourcePrice = getPriceWad(sourceAsset);
+  const sourceDecimals = getDecimals(sourceAsset);
+  const minActionUsd = Math.max(0, Math.trunc(asNumber(body.minActionUsd) ?? config.rescue.minActionUsd));
+  let actionUsdWad = 0n;
   if (sourcePrice) {
-    const sourceDecimals = getDecimals(sourceAsset);
+    actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
     const maxNotionalUsdWad = BigInt(Math.max(0, Math.trunc(config.budget.maxRescueNotionalUsd))) * WAD2;
-    const notionalUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
-    if (notionalUsdWad > maxNotionalUsdWad) {
+    if (actionUsdWad > maxNotionalUsdWad) {
       actionAmount = fromUsdWadToAmount(maxNotionalUsdWad, sourceDecimals, sourcePrice);
+      actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
     }
   }
   if (actionAmount <= 0n) {
@@ -18281,8 +18562,23 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       user,
       mode,
       desiredAmount: desiredAmount.toString(),
-      reserveSafeSource: reserveSafeSource.toString()
+      reserveSafeSource: reserveSafeSource.toString(),
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
+      sourceFloorHfBps
     });
+  }
+  if (sourcePrice && minActionUsd > 0) {
+    const minActionUsdWad = BigInt(minActionUsd) * WAD2;
+    if (actionUsdWad < minActionUsdWad) {
+      return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Computed rescue amount below minimum action threshold", {
+        user,
+        runMode,
+        mode,
+        actionAmount: actionAmount.toString(),
+        actionUsd: wadToFixed(actionUsdWad, 6),
+        minActionUsd
+      });
+    }
   }
   const step = {
     stepIndex: 0n,
@@ -18301,12 +18597,13 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       mode
     });
   }
+  runtime2.log(`Planning rescue with step: ${describePlan(step, mode, execId)}`);
   const plan = {
     execId,
     user,
     mode: modeToEnum(mode),
     steps: [step],
-    deadline: BigInt(nowSec + Math.max(60, deadlineSec)),
+    deadline: BigInt(nowSec + 1e9),
     maxFee
   };
   if (runMode !== "execute") {
@@ -18327,14 +18624,35 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     });
   }
   let txHash;
+  const reportReceiver = asAddress(body.workflowReceiver) ?? (asAddress(config.contracts.workflowReceiver) ?? asAddress(config.contracts.rescueReporter));
+  if (!reportReceiver) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Workflow receiver is not configured", {
+      user,
+      runMode,
+      rescueMode: mode
+    });
+  }
   try {
-    txHash = submitRescuePlan(runtime2, chain, config.contracts.rescueExecutor, plan);
+    txHash = submitRescuePlanReport(runtime2, chain, reportReceiver, plan);
   } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const manualFallback = errMsg.includes("writeReport") && errMsg.includes("unavailable");
+    if (manualFallback) {
+      return buildNoAction(config.strategyId, trigger, execId, "ABORT", "CRE runtime cannot submit signed reports in current SDK; execute rescue via Forge script", {
+        user,
+        runMode,
+        rescueMode: mode,
+        plannedCrossChain: useCrossChain,
+        planPreview: describePlan(step, mode, execId),
+        recommendedScript: "contracts/script/reprieve/ExecuteSameChainRescueFromPlan.s.sol",
+        error: errMsg
+      });
+    }
     return buildNoAction(config.strategyId, trigger, execId, "ABORT", "executeRescue reverted", {
       user,
       runMode,
       rescueMode: mode,
-      error: error instanceof Error ? error.message : String(error)
+      error: errMsg
     });
   }
   let messageId = ZERO_BYTES32;
@@ -18343,7 +18661,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     messageId = readCcipMessageId(runtime2, chain, config.contracts.rescueExecutor, execId);
   } catch {}
   try {
-    finalStatus = readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId);
+    finalStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId));
   } catch {}
   const settlementState = useCrossChain && messageId !== ZERO_BYTES32 ? "DISPATCHED" : finalStatus === 2n || finalStatus === 3n ? "DELIVERED_SUCCESS" : "NONE";
   return buildEnvelope({
@@ -18351,24 +18669,27 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     strategyId: config.strategyId,
     trigger,
     decision: useCrossChain ? "RESCUE_CROSS_CHAIN" : "RESCUE_SAME_CHAIN",
-    reason: "Rescue plan submitted",
+    reason: "Rescue report submitted",
     settlementState,
     txRefs: [
       {
         chainSelectorName: config.chainSelectorName,
         txHash,
-        label: "executeRescue"
+        label: "writeReport(onReport)"
       }
     ],
     metadata: {
       user,
       runMode,
+      reportReceiver,
       rescueMode: mode,
       sourceAdapter: step.sourceAdapter,
       targetAdapter: step.targetAdapter,
       sourceAsset: step.collateralAsset,
       targetAsset: defaultTargetAsset,
       amount: actionAmount.toString(),
+      sourceFloorHfBps,
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
       crossChain: useCrossChain,
       targetChain: destinationChain.toString(),
       ccipMessageId: messageId,

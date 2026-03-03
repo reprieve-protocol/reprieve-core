@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Script, console} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
+import {MockERC20} from "../../src/mocks/MockERC20.sol";
+import {MockAavePool} from "../../src/mocks/MockAavePool.sol";
+import {MockCompoundMarket} from "../../src/mocks/MockCompoundMarket.sol";
+import {MockMorphoMarket} from "../../src/mocks/MockMorphoMarket.sol";
+import {IReprieveAdapter} from "../../src/interfaces/IReprieveAdapter.sol";
+
+/**
+ * @title DepositCollateral
+ * @notice User action: deposit collateral into selected protocol market.
+ * @dev Reads env vars set by scripts/ops.sh:
+ *      - USER_PRIVATE_KEY, ADAPTER_ADDRESS, MARKET_ADDRESS, PROTOCOL_KIND, ASSET_ADDRESS, AMOUNT_RAW
+ */
+contract DepositCollateral is Script {
+    function run() external {
+        uint256 fallbackPk = vm.envUint("PRIVATE_KEY");
+        uint256 userPk = vm.envOr("USER_PRIVATE_KEY", fallbackPk);
+        uint256 minterPk = vm.envOr("MINTER_PRIVATE_KEY", fallbackPk);
+        address user = vm.addr(userPk);
+
+        address adapter = vm.envAddress("ADAPTER_ADDRESS");
+        address market = vm.envAddress("MARKET_ADDRESS");
+        address asset = vm.envAddress("ASSET_ADDRESS");
+        uint256 amount = vm.envUint("AMOUNT_RAW");
+        string memory protocolRaw = vm.envString("PROTOCOL_KIND");
+        string memory symbol = vm.envOr("ASSET_SYMBOL", string(""));
+        string memory amountHuman = vm.envOr("AMOUNT_HUMAN", string(""));
+
+        require(adapter != address(0), "DepositCollateral: ADAPTER_ADDRESS missing");
+        require(market != address(0), "DepositCollateral: MARKET_ADDRESS missing");
+        require(asset != address(0), "DepositCollateral: ASSET_ADDRESS missing");
+        require(amount > 0, "DepositCollateral: AMOUNT_RAW must be > 0");
+
+        bytes32 protocol = _parseProtocol(protocolRaw);
+
+        uint256 currentBalance = IERC20(asset).balanceOf(user);
+        if (currentBalance < amount) {
+            uint256 mintAmount = amount - currentBalance;
+            vm.startBroadcast(minterPk);
+            MockERC20(asset).mint(user, mintAmount);
+            vm.stopBroadcast();
+            console.log("User balance insufficient, minted top-up:", mintAmount);
+        }
+
+        vm.startBroadcast(userPk);
+        IERC20(asset).approve(adapter, amount);
+
+        if (protocol == keccak256("AAVE")) {
+            require(asset == MockAavePool(market).collateral(), "DepositCollateral: non-collateral asset for AAVE");
+        } else if (protocol == keccak256("COMPOUND")) {
+            require(
+                asset == MockCompoundMarket(market).collateral(),
+                "DepositCollateral: non-collateral asset for Compound"
+            );
+        } else if (protocol == keccak256("MORPHO")) {
+            require(
+                asset == MockMorphoMarket(market).collateral(),
+                "DepositCollateral: non-collateral asset for Morpho"
+            );
+        } else {
+            revert("DepositCollateral: unsupported protocol");
+        }
+
+        IReprieveAdapter(adapter).supplyForRescue(user, asset, amount);
+        if (protocol == keccak256("AAVE")) {
+            // Rescue source withdrawals use adapter.withdrawForRescue -> aToken.transferFrom(user,...).
+            // Keep adapter allowance warm so CRE-triggered rescues do not revert on missing aToken approval.
+            address aToken = address(MockAavePool(market).aToken());
+            IERC20(aToken).approve(adapter, type(uint256).max);
+        }
+        vm.stopBroadcast();
+
+        console.log("Deposit collateral executed.");
+        console.log("Chain ID:", block.chainid);
+        console.log("User:", user);
+        console.log("Protocol:", protocolRaw);
+        console.log("Adapter:", adapter);
+        console.log("Market:", market);
+        console.log("Asset:", asset);
+        if (bytes(symbol).length > 0) console.log("Symbol:", symbol);
+        if (bytes(amountHuman).length > 0) console.log("Amount (human):", amountHuman);
+        console.log("Amount (raw):", amount);
+    }
+
+    function _parseProtocol(string memory raw) internal pure returns (bytes32) {
+        bytes32 p = keccak256(bytes(raw));
+        if (p == keccak256("AAVE")) return p;
+        if (p == keccak256("COMPOUND")) return p;
+        if (p == keccak256("MORPHO")) return p;
+        revert("DepositCollateral: PROTOCOL_KIND must be AAVE/COMPOUND/MORPHO");
+    }
+}

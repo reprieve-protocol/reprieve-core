@@ -4,14 +4,16 @@ import {
   type EVMLog,
   getNetwork,
   encodeCallMsg,
-  LAST_FINALIZED_BLOCK_NUMBER,
+  LATEST_BLOCK_NUMBER,
   bytesToHex,
   hexToBase64,
 } from "@chainlink/cre-sdk";
 import {
   decodeEventLog,
+  encodeAbiParameters,
   decodeFunctionResult,
   encodeFunctionData,
+  parseAbiParameters,
   parseAbi,
   zeroAddress,
   type Address,
@@ -91,6 +93,11 @@ export interface CrossChainTerminalEvent {
   reason?: string;
 }
 
+export interface MockOraclePrice {
+  priceWad: bigint;
+  updatedAt: number;
+}
+
 const ADAPTER_ABI = parseAbi([
   "function discoverPositions(address user) view returns ((address protocol,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,uint256 healthFactor,uint256 ltvBps,uint256 maxLtvBps,uint256 liquidationThresholdBps)[] positions)",
   "function healthFactor(address user) view returns (uint256 hfWad)",
@@ -104,6 +111,10 @@ const RESCUE_EXECUTOR_ABI = parseAbi([
   "function executeRescue((bytes32 execId,address user,uint8 mode,(uint256 stepIndex,address sourceAdapter,address targetAdapter,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,bool isCrossChain,uint64 targetChain)[] steps,uint256 deadline,uint256 maxFee) plan) returns (bool success)",
 ]);
 
+const RESCUE_PLAN_REPORT_PARAMS = parseAbiParameters([
+  "(bytes32,address,uint8,(uint256,address,address,address,address,uint256,uint256,bool,uint64)[],uint256,uint256)",
+]);
+
 const RESCUE_LOG_ABI = parseAbi([
   "function getLogEntries(bytes32 execId) view returns ((bytes32 execId,uint256 stepIndex,address user,uint8 status,uint256 timestamp,string details)[] entries)",
 ]);
@@ -114,6 +125,10 @@ const CCIP_RECEIVER_ABI = parseAbi([
 
 const ERC20_METADATA_ABI = parseAbi([
   "function decimals() view returns (uint8)",
+]);
+
+const MOCK_PRICE_ORACLE_ABI = parseAbi([
+  "function getPrice(address asset) view returns (uint256 price,uint256 timestamp)",
 ]);
 
 const REPRIEVE_EVENT_ABI = parseAbi([
@@ -170,7 +185,8 @@ const readContract = <T>(
         to: contractAddress,
         data: calldata,
       }),
-      blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+      // Demo mode: use latest block so newly updated oracle prices are visible immediately.
+      blockNumber: LATEST_BLOCK_NUMBER,
     })
     .result();
 
@@ -198,7 +214,14 @@ const writeContract = (
     args,
   });
 
-  const result = (evmClient as any).write(
+  const writeFn = (evmClient as unknown as { write?: Function }).write;
+  if (typeof writeFn !== "function") {
+    throw new Error(
+      "EVMClient.write unavailable in this @chainlink/cre-sdk runtime; direct contract tx submission is not supported"
+    );
+  }
+
+  const result = writeFn.call(evmClient,
     {
       contractAddress: hexToBase64(contractAddress),
       calldata: hexToBase64(calldata),
@@ -274,6 +297,31 @@ export const readTokenDecimals = (
       []
     )
   );
+
+export const readMockOraclePrice = (
+  runtime: Runtime<BaseWorkflowConfig>,
+  chain: ChainRef,
+  oracleAddress: Address,
+  asset: Address
+): MockOraclePrice => {
+  const result = readContract<
+    readonly [bigint, bigint] | { price: bigint; timestamp: bigint }
+  >(runtime, chain, oracleAddress, MOCK_PRICE_ORACLE_ABI, "getPrice", [asset]);
+
+  if ("price" in (result as { price?: bigint })) {
+    const named = result as { price: bigint; timestamp: bigint };
+    return {
+      priceWad: named.price,
+      updatedAt: Number(named.timestamp),
+    };
+  }
+
+  const tuple = result as readonly [bigint, bigint];
+  return {
+    priceWad: tuple[0],
+    updatedAt: Number(tuple[1]),
+  };
+};
 
 export const readAdapterSnapshot = (
   runtime: Runtime<BaseWorkflowConfig>,
@@ -356,6 +404,67 @@ export const submitRescuePlan = (
     [plan],
     gasLimit
   );
+
+const encodeRescuePlanReport = (plan: RescuePlanInput): Hex =>
+  encodeAbiParameters(RESCUE_PLAN_REPORT_PARAMS, [
+    // viem expects strict tuple arrays for nested ABI tuples.
+    ([
+      plan.execId,
+      plan.user,
+      plan.mode,
+      plan.steps.map(
+        (step): [bigint, Address, Address, Address, Address, bigint, bigint, boolean, bigint] => [
+          step.stepIndex,
+          step.sourceAdapter,
+          step.targetAdapter,
+          step.collateralAsset,
+          step.debtAsset,
+          step.collateralAmount,
+          step.debtAmount,
+          step.isCrossChain,
+          step.targetChain,
+        ]
+      ),
+      plan.deadline,
+      plan.maxFee,
+    ] as const),
+  ]);
+
+export const submitRescuePlanReport = (
+  runtime: Runtime<BaseWorkflowConfig>,
+  chain: ChainRef,
+  workflowReceiverAddress: Address,
+  plan: RescuePlanInput,
+  gasLimit = "1200000"
+): Hex => {
+  const evmClient = createEvmClient(chain);
+  const reportPayload = encodeRescuePlanReport(plan);
+
+  runtime.log("Submitting rescue report");
+  runtime.log(`Report receiver: ${workflowReceiverAddress}`);
+  runtime.log(`Execution id: ${plan.execId}`);
+
+  const reportResponse = runtime
+    .report({
+      encodedPayload: hexToBase64(reportPayload),
+      encoderName: "evm",
+      signingAlgo: "ecdsa",
+      hashingAlgo: "keccak256",
+    })
+    .result();
+
+  const writeResult = evmClient.writeReport(runtime, {
+    receiver: workflowReceiverAddress,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit,
+    },
+  }).result();
+
+  const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32)) as Hex;
+  runtime.log(`Rescue report submitted. Tx: ${txHash}`);
+  return txHash;
+};
 
 export const readRescueLogEntries = (
   runtime: Runtime<BaseWorkflowConfig>,

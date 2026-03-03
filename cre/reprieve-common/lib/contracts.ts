@@ -4,7 +4,7 @@ import {
   type EVMLog,
   getNetwork,
   encodeCallMsg,
-  LAST_FINALIZED_BLOCK_NUMBER,
+  LATEST_BLOCK_NUMBER,
   bytesToHex,
   hexToBase64,
 } from "@chainlink/cre-sdk";
@@ -91,6 +91,11 @@ export interface CrossChainTerminalEvent {
   reason?: string;
 }
 
+export interface MockOraclePrice {
+  priceWad: bigint;
+  updatedAt: number;
+}
+
 const ADAPTER_ABI = parseAbi([
   "function discoverPositions(address user) view returns ((address protocol,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,uint256 healthFactor,uint256 ltvBps,uint256 maxLtvBps,uint256 liquidationThresholdBps)[] positions)",
   "function healthFactor(address user) view returns (uint256 hfWad)",
@@ -114,6 +119,10 @@ const CCIP_RECEIVER_ABI = parseAbi([
 
 const ERC20_METADATA_ABI = parseAbi([
   "function decimals() view returns (uint8)",
+]);
+
+const MOCK_PRICE_ORACLE_ABI = parseAbi([
+  "function getPrice(address asset) view returns (uint256 price,uint256 timestamp)",
 ]);
 
 const REPRIEVE_EVENT_ABI = parseAbi([
@@ -170,7 +179,8 @@ const readContract = <T>(
         to: contractAddress,
         data: calldata,
       }),
-      blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+      // Demo mode: use latest block so newly updated oracle prices are visible immediately.
+      blockNumber: LATEST_BLOCK_NUMBER,
     })
     .result();
 
@@ -274,6 +284,31 @@ export const readTokenDecimals = (
       []
     )
   );
+
+export const readMockOraclePrice = (
+  runtime: Runtime<BaseWorkflowConfig>,
+  chain: ChainRef,
+  oracleAddress: Address,
+  asset: Address
+): MockOraclePrice => {
+  const result = readContract<
+    readonly [bigint, bigint] | { price: bigint; timestamp: bigint }
+  >(runtime, chain, oracleAddress, MOCK_PRICE_ORACLE_ABI, "getPrice", [asset]);
+
+  if ("price" in (result as { price?: bigint })) {
+    const named = result as { price: bigint; timestamp: bigint };
+    return {
+      priceWad: named.price,
+      updatedAt: Number(named.timestamp),
+    };
+  }
+
+  const tuple = result as readonly [bigint, bigint];
+  return {
+    priceWad: tuple[0],
+    updatedAt: Number(tuple[1]),
+  };
+};
 
 export const readAdapterSnapshot = (
   runtime: Runtime<BaseWorkflowConfig>,

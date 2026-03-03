@@ -72,6 +72,29 @@ What it does:
 - Writes artifact:
   - `contracts/config/reprieve-stack-<chainId>.json`
 
+### B2. Deploy + wire CRE workflow receiver (one chain)
+
+Deploy receiver:
+```bash
+CRE_FORWARDER=0xYourCreForwarder \
+./scripts/ops.sh workflow-receiver-deploy ethereum-sepolia
+```
+
+Wire receiver permissions/guards:
+```bash
+CRE_FORWARDER=0xYourCreForwarder \
+WF_EXPECTED_AUTHOR=0xYourWorkflowOwner \
+./scripts/ops.sh workflow-receiver-wire ethereum-sepolia
+```
+
+What it does:
+- Deploys `ReprieveWorkflowReceiver` (CRE `onReport` consumer)
+- Authorizes receiver on `RescueExecutor.setAuthorizedWorkflow(...)`
+- Configures receiver forwarder and author guard (`WF_EXPECTED_AUTHOR`)
+- Clears workflow ID/name checks so multiple workflows from the same author are accepted
+- Writes artifact:
+  - `contracts/config/reprieve-workflow-receiver-<chainId>.json`
+
 ### C. Deploy mock CCIP router (one chain)
 
 ```bash
@@ -163,6 +186,31 @@ Print loaded addresses:
 ./scripts/ops.sh addresses ethereum-sepolia
 ```
 
+Set oracle price by symbol (auto-maps symbol -> asset address from chain config):
+```bash
+./scripts/ops.sh set-oracle-price ethereum-sepolia WETH 1850.25
+./scripts/ops.sh set-oracle-price base-sepolia USDC 1
+./scripts/reprieve/set-oracle-price-both.sh ethereum-sepolia base-sepolia WETH 1850.25
+```
+Notes:
+- Supports aliases: `ETH` -> collateral asset when collateral symbol is `WETH`.
+- Also supports `COLLATERAL` / `DEBT` aliases.
+- Uses `contracts.<MockPriceOracle>` from `contracts/config/<chain>.json` unless `PRICE_ORACLE` is set.
+
+Manual user actions (all support `<chain> <symbol> <protocol> <human-amount>`):
+```bash
+./scripts/ops.sh deposit-collateral ethereum-sepolia WETH AAVE 1.5
+./scripts/ops.sh withdraw-collateral ethereum-sepolia WETH COMPOUND 0.25
+./scripts/ops.sh borrow-asset ethereum-sepolia USDC MORPHO 500
+./scripts/ops.sh repay-asset ethereum-sepolia USDC AAVE 100
+```
+Notes:
+- Protocol: `AAVE` / `COMPOUND` / `MORPHO` (case-insensitive).
+- Symbol mapping is loaded from chain config token params + aliases:
+  - `ETH` -> `WETH` (collateral alias when collateral symbol is WETH)
+  - `COLLATERAL` / `DEBT`
+- Human amount is converted to token units using token decimals in `contracts/config/<chain>.json`.
+
 Run build/tests/check scripts:
 ```bash
 ./scripts/ops.sh checks
@@ -172,8 +220,15 @@ Run build/tests/check scripts:
 
 - Lending one-shot deploy:
   - `contracts/script/demo/DeployLendingStack.s.sol`
+  - `contracts/script/demo/SetOraclePrice.s.sol`
+  - `contracts/script/demo/DepositCollateral.s.sol`
+  - `contracts/script/demo/WithdrawCollateral.s.sol`
+  - `contracts/script/demo/BorrowAsset.s.sol`
+  - `contracts/script/demo/RepayAsset.s.sol`
 - Reprieve one-shot deploy:
   - `contracts/script/reprieve/DeployReprieveStack.s.sol`
+  - `contracts/script/reprieve/DeployWorkflowReceiver.s.sol`
+  - `contracts/script/reprieve/WireWorkflowReceiver.s.sol`
 - Mock router one-shot deploy:
   - `contracts/script/reprieve/DeployMockCCIPRouter.s.sol`
 - Reprieve verify:

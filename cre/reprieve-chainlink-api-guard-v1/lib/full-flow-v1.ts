@@ -9,7 +9,7 @@ import {
   readRescueInProgress,
   readRescueStatus,
   readTokenDecimals,
-  submitRescuePlan,
+  submitRescuePlanReport,
   type RescuePlanInput,
   type RescueStepInput,
 } from "./contracts";
@@ -21,6 +21,10 @@ const ZERO_BYTES32 = "0x00000000000000000000000000000000000000000000000000000000
 
 type RunMode = "execute" | "monitor_only" | "dry_run";
 type RescueModeLabel = "TOP_UP" | "REPAY";
+type SourceCandidate = {
+  source: FlatPosition;
+  mode: RescueModeLabel;
+};
 
 type FlatPosition = {
   label: string;
@@ -61,15 +65,19 @@ const asBoolean = (value: unknown): boolean | undefined => {
   return undefined;
 };
 
+const asNumber = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
 const asRunMode = (value: unknown, fallback: RunMode): RunMode => {
   if (value === "execute" || value === "monitor_only" || value === "dry_run") {
     return value;
   }
-  return fallback;
-};
-
-const asRescueMode = (value: unknown, fallback: RescueModeLabel): RescueModeLabel => {
-  if (value === "TOP_UP" || value === "REPAY") return value;
   return fallback;
 };
 
@@ -80,6 +88,16 @@ const minBigInt = (a: bigint, b: bigint): bigint => (a < b ? a : b);
 const toUsdWad = (amount: bigint, decimals: number, priceUsdWad: bigint): bigint => {
   if (amount <= 0n || priceUsdWad <= 0n) return 0n;
   return (amount * priceUsdWad) / (10n ** BigInt(decimals));
+};
+
+const wadToFixed = (wad: bigint, fractionDigits = 4): string => {
+  const sign = wad < 0n ? "-" : "";
+  const abs = wad < 0n ? -wad : wad;
+  const whole = abs / WAD;
+  if (fractionDigits <= 0) return `${sign}${whole.toString()}`;
+  const fracBase = 10n ** BigInt(18 - fractionDigits);
+  const frac = (abs % WAD) / fracBase;
+  return `${sign}${whole.toString()}.${frac.toString().padStart(fractionDigits, "0")}`;
 };
 
 const fromUsdWadToAmount = (usdWad: bigint, decimals: number, priceUsdWad: bigint): bigint => {
@@ -107,6 +125,30 @@ const flattenPositions = (snapshots: AdapterSnapshot[]): FlatPosition[] => {
     }
   }
   return flat;
+};
+
+const inferRescueModeFromPositions = (
+  source: FlatPosition,
+  target: FlatPosition
+): RescueModeLabel | undefined => {
+  const srcCollateral = source.position.collateralAsset.toLowerCase();
+  const srcDebt = source.position.debtAsset.toLowerCase();
+  const tgtCollateral = target.position.collateralAsset.toLowerCase();
+  const tgtDebt = target.position.debtAsset.toLowerCase();
+
+  if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
+    return "TOP_UP";
+  }
+  if (srcCollateral === tgtDebt && srcDebt === tgtCollateral) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtDebt) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtCollateral) {
+    return "TOP_UP";
+  }
+  return undefined;
 };
 
 const describePlan = (step: RescueStepInput, mode: RescueModeLabel, execId: Hex): string =>
@@ -172,6 +214,12 @@ const statusLabel = (status: bigint): string => {
   return `Unknown(${status.toString()})`;
 };
 
+const normalizeStatus = (value: bigint | number | string): bigint => {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number") return BigInt(Math.trunc(value));
+  return BigInt(value);
+};
+
 const toExecutionId = (
   provided: Hex | undefined,
   strategyId: string,
@@ -212,18 +260,24 @@ export const runChainlinkApiGuardFlow = (
   const chain = { chainSelectorName: config.chainSelectorName, isTestnet: config.isTestnet };
   const user = (asAddress(body.user) ?? config.monitoring.defaultUser) as Address;
   const runMode = asRunMode(body.runMode, trigger === "http" ? "execute" : "monitor_only");
-  const mode = asRescueMode(body.rescueMode, config.rescue.defaultMode);
-  const execId = toExecutionId(asBytes32(body.executionId), config.strategyId, user, mode, trigger);
+  const providedExecutionId = asBytes32(body.executionId);
   const maxFee = asBigInt(body.maxFeeWei) ?? BigInt(config.budget.maxNativeFeeWei);
   const deadlineSec = Number(asBigInt(body.deadlineSeconds) ?? BigInt(config.crossChain.deliveryTimeoutSec));
   const nowSec = Math.floor(Date.now() / 1000);
+  const baseExecId = toExecutionId(
+    providedExecutionId,
+    config.strategyId,
+    user,
+    config.rescue.defaultMode,
+    trigger
+  );
 
   const guard = evaluateChainlinkApiGuard(runtime, config, user);
   if (guard.decision === "ABORT" || guard.decision === "NO_ACTION") {
-    return buildNoAction(config.strategyId, trigger, execId, guard.decision, guard.reason, {
+    return buildNoAction(config.strategyId, trigger, baseExecId, guard.decision, guard.reason, {
       user,
       runMode,
-      rescueMode: mode,
+      rescueModePolicy: "AUTO_INFERRED",
       ...guard.metadata,
     });
   }
@@ -232,41 +286,17 @@ export const runChainlinkApiGuardFlow = (
   try {
     inProgress = readRescueInProgress(runtime, chain, config.contracts.rescueExecutor as Address, user);
   } catch (error) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue lock state", {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Unable to read rescue lock state", {
       user,
       runMode,
       error: error instanceof Error ? error.message : String(error),
     });
   }
   if (inProgress) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Rescue already in progress for user", {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Rescue already in progress for user", {
       user,
       runMode,
-      rescueMode: mode,
-    });
-  }
-
-  let existingStatus = 0n;
-  try {
-    existingStatus = readRescueStatus(
-      runtime,
-      chain,
-      config.contracts.rescueExecutor as Address,
-      execId
-    );
-  } catch (error) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue status", {
-      user,
-      runMode,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-  if (existingStatus !== 0n) {
-    return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Execution id already used", {
-      user,
-      runMode,
-      rescueMode: mode,
-      status: statusLabel(existingStatus),
+      rescueModePolicy: "AUTO_INFERRED",
     });
   }
 
@@ -275,11 +305,13 @@ export const runChainlinkApiGuardFlow = (
     let pendingStatus = 0n;
     let pendingMessageId = ZERO_BYTES32 as Hex;
     try {
-      pendingStatus = readRescueStatus(
-        runtime,
-        chain,
-        config.contracts.rescueExecutor as Address,
-        pendingExecId
+      pendingStatus = normalizeStatus(
+        readRescueStatus(
+          runtime,
+          chain,
+          config.contracts.rescueExecutor as Address,
+          pendingExecId
+        )
       );
       pendingMessageId = readCcipMessageId(
         runtime,
@@ -289,7 +321,7 @@ export const runChainlinkApiGuardFlow = (
       );
     } catch {}
     if (pendingStatus === 2n && pendingMessageId !== ZERO_BYTES32) {
-      return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Pending cross-chain settlement exists", {
+      return buildNoAction(config.strategyId, trigger, baseExecId, "NO_ACTION", "Pending cross-chain settlement exists", {
         user,
         runMode,
         pendingExecId,
@@ -298,59 +330,108 @@ export const runChainlinkApiGuardFlow = (
     }
   }
 
-  const flat = flattenPositions(guard.snapshots).filter((p) => p.position.debtAmount > 0n);
-  if (flat.length === 0) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No debt-bearing positions found for rescue planning", {
-      user,
-      runMode,
-      rescueMode: mode,
-    });
+  const allFlat = flattenPositions(guard.snapshots);
+  const debtBearing = allFlat.filter((p) => p.position.debtAmount > 0n);
+  if (debtBearing.length === 0) {
+    return buildNoAction(
+      config.strategyId,
+      trigger,
+      baseExecId,
+      "ABORT",
+      "No debt-bearing positions found for rescue planning",
+      {
+        user,
+        runMode,
+        rescueModePolicy: "AUTO_INFERRED",
+      }
+    );
   }
-  flat.sort(sortByRiskAscending);
+  debtBearing.sort(sortByRiskAscending);
 
   const targetAdapterOverride = asAddress(body.targetAdapter);
   const sourceAdapterOverride = asAddress(body.sourceAdapter);
   const forceCrossChain = asBoolean(body.forceCrossChain) ?? false;
 
-  const target = flat.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ?? flat[0];
-  const sourcePool = flat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n);
-  if (sourcePool.length === 0) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No rescue source with withdrawable collateral", {
+  const target =
+    debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ??
+    debtBearing[0];
+  const sourcePool = allFlat.filter(
+    (p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n
+  );
+  const sourceCandidates: SourceCandidate[] = [];
+  for (const source of sourcePool) {
+    const inferred = inferRescueModeFromPositions(source, target);
+    if (!inferred) continue;
+    sourceCandidates.push({ source, mode: inferred });
+  }
+
+  if (sourceCandidates.length === 0) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No compatible rescue source with withdrawable collateral", {
       user,
       runMode,
-      rescueMode: mode,
+      rescueModePolicy: "AUTO_INFERRED",
     });
   }
 
-  const sameChainSources = sourcePool.filter((p) => !p.preferCrossChain && !p.rescueTargetChainSelector);
-  const crossChainSources = sourcePool.filter((p) => p.preferCrossChain || !!p.rescueTargetChainSelector);
+  const sameChainSources = sourceCandidates.filter(
+    (c) => !c.source.preferCrossChain
+  );
+  const crossChainSources = sourceCandidates.filter(
+    (c) => c.source.preferCrossChain || !!c.source.rescueTargetChainSelector
+  );
 
-  const chooseHighestCollateral = (list: FlatPosition[]): FlatPosition | undefined => {
-    let best: FlatPosition | undefined;
+  const chooseHighestCollateral = (list: SourceCandidate[]): SourceCandidate | undefined => {
+    let best: SourceCandidate | undefined;
     for (const item of list) {
-      if (sourceAdapterOverride && item.adapterAddress !== sourceAdapterOverride) continue;
-      if (!best || item.availableCollateral > best.availableCollateral) best = item;
+      if (sourceAdapterOverride && item.source.adapterAddress !== sourceAdapterOverride) continue;
+      if (!best || item.source.availableCollateral > best.source.availableCollateral) best = item;
     }
     return best;
   };
 
   let useCrossChain = false;
-  let source = chooseHighestCollateral(sameChainSources);
-  if (!source || forceCrossChain) {
+  let selected = chooseHighestCollateral(sameChainSources);
+  if (!selected || forceCrossChain) {
     if (config.rescue.allowCrossChain) {
       const preferred = chooseHighestCollateral(crossChainSources);
       if (preferred) {
-        source = preferred;
+        selected = preferred;
         useCrossChain = true;
       }
     }
   }
 
-  if (!source) {
-    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No eligible source after same-chain-first selection", {
+  if (!selected) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No eligible source after same-chain-first selection", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED",
+    });
+  }
+
+  const source = selected.source;
+  const mode = selected.mode;
+  const execId = toExecutionId(providedExecutionId, config.strategyId, user, mode, trigger);
+
+  let existingStatus = 0n;
+  try {
+    existingStatus = normalizeStatus(
+      readRescueStatus(runtime, chain, config.contracts.rescueExecutor as Address, execId)
+    );
+  } catch (error) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue status", {
       user,
       runMode,
       rescueMode: mode,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (existingStatus !== 0n) {
+    return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Execution id already used", {
+      user,
+      runMode,
+      rescueMode: mode,
+      status: statusLabel(existingStatus),
     });
   }
 
@@ -403,15 +484,52 @@ export const runChainlinkApiGuardFlow = (
     asBigInt(body.transferAmount) ??
     estimateNeededAction(mode, target, config.thresholds.earlyWarningHfBps, getPriceWad, getDecimals);
   const reserveSafeSource = (source.availableCollateral * BigInt(10000 - config.rescue.reserveCapBps)) / BPS_DENOM;
-  let actionAmount = minBigInt(desiredAmount, reserveSafeSource);
+  let sourceHfSafeCap = source.availableCollateral;
+
+  const sourceFloorHfBps = Number(
+    asBigInt(body.sourceFloorHfBps) ?? BigInt(config.thresholds.earlyWarningHfBps)
+  );
+  if (sourceFloorHfBps > 0) {
+    const sourcePrice = getPriceWad(source.position.collateralAsset as Address);
+    const sourceDebtPrice = getPriceWad(source.position.debtAsset as Address);
+    if (sourcePrice && sourceDebtPrice && source.position.debtAmount > 0n) {
+      const sourceCollDecimals = getDecimals(source.position.collateralAsset as Address);
+      const sourceDebtDecimals = getDecimals(source.position.debtAsset as Address);
+      const sourceCollUsdWad = toUsdWad(source.position.collateralAmount, sourceCollDecimals, sourcePrice);
+      const sourceDebtUsdWad = toUsdWad(source.position.debtAmount, sourceDebtDecimals, sourceDebtPrice);
+
+      const sourceEffectiveCollUsdWad =
+        (sourceCollUsdWad * source.position.liquidationThresholdBps) / BPS_DENOM;
+      const floorHfWad = BigInt(sourceFloorHfBps) * 10n ** 14n;
+      const minEffectiveCollAtFloorUsdWad = (floorHfWad * sourceDebtUsdWad) / WAD;
+
+      if (
+        source.position.liquidationThresholdBps == 0n ||
+        sourceEffectiveCollUsdWad <= minEffectiveCollAtFloorUsdWad
+      ) {
+        sourceHfSafeCap = 0n;
+      } else {
+        const headroomEffectiveUsdWad = sourceEffectiveCollUsdWad - minEffectiveCollAtFloorUsdWad;
+        const headroomCollateralUsdWad =
+          (headroomEffectiveUsdWad * BPS_DENOM) / source.position.liquidationThresholdBps;
+        sourceHfSafeCap = fromUsdWadToAmount(headroomCollateralUsdWad, sourceCollDecimals, sourcePrice);
+      }
+    }
+  }
+
+  let actionAmount = minBigInt(desiredAmount, minBigInt(reserveSafeSource, sourceHfSafeCap));
 
   const sourcePrice = getPriceWad(sourceAsset);
+  const sourceDecimals = getDecimals(sourceAsset);
+  const minActionUsd = Math.max(0, Math.trunc(asNumber(body.minActionUsd) ?? config.rescue.minActionUsd));
+  let actionUsdWad = 0n;
+
   if (sourcePrice) {
-    const sourceDecimals = getDecimals(sourceAsset);
+    actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
     const maxNotionalUsdWad = BigInt(Math.max(0, Math.trunc(config.budget.maxRescueNotionalUsd))) * WAD;
-    const notionalUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
-    if (notionalUsdWad > maxNotionalUsdWad) {
+    if (actionUsdWad > maxNotionalUsdWad) {
       actionAmount = fromUsdWadToAmount(maxNotionalUsdWad, sourceDecimals, sourcePrice);
+      actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
     }
   }
 
@@ -421,7 +539,30 @@ export const runChainlinkApiGuardFlow = (
       mode,
       desiredAmount: desiredAmount.toString(),
       reserveSafeSource: reserveSafeSource.toString(),
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
+      sourceFloorHfBps,
     });
+  }
+
+  if (sourcePrice && minActionUsd > 0) {
+    const minActionUsdWad = BigInt(minActionUsd) * WAD;
+    if (actionUsdWad < minActionUsdWad) {
+      return buildNoAction(
+        config.strategyId,
+        trigger,
+        execId,
+        "NO_ACTION",
+        "Computed rescue amount below minimum action threshold",
+        {
+          user,
+          runMode,
+          mode,
+          actionAmount: actionAmount.toString(),
+          actionUsd: wadToFixed(actionUsdWad, 6),
+          minActionUsd,
+        }
+      );
+    }
   }
 
   const step: RescueStepInput = {
@@ -443,12 +584,14 @@ export const runChainlinkApiGuardFlow = (
     });
   }
 
+  runtime.log(`Planning rescue with step: ${describePlan(step, mode, execId)}`);
+
   const plan: RescuePlanInput = {
     execId,
     user,
     mode: modeToEnum(mode),
     steps: [step],
-    deadline: BigInt(nowSec + Math.max(60, deadlineSec)),
+    deadline: BigInt(nowSec + 1000000000), // effectively no deadline - actual execution will check against block.timestamp and revert if past deadline
     maxFee,
   };
 
@@ -471,19 +614,52 @@ export const runChainlinkApiGuardFlow = (
   }
 
   let txHash: Hex;
+  const reportReceiver =
+    asAddress(body.workflowReceiver) ??
+    (asAddress(config.contracts.workflowReceiver) ?? asAddress(config.contracts.rescueReporter));
+
+  if (!reportReceiver) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Workflow receiver is not configured", {
+      user,
+      runMode,
+      rescueMode: mode,
+    });
+  }
+
   try {
-    txHash = submitRescuePlan(
+    txHash = submitRescuePlanReport(
       runtime,
       chain,
-      config.contracts.rescueExecutor as Address,
+      reportReceiver,
       plan
     );
   } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const manualFallback =
+      errMsg.includes("writeReport") && errMsg.includes("unavailable");
+    if (manualFallback) {
+      return buildNoAction(
+        config.strategyId,
+        trigger,
+        execId,
+        "ABORT",
+        "CRE runtime cannot submit signed reports in current SDK; execute rescue via Forge script",
+        {
+          user,
+          runMode,
+          rescueMode: mode,
+          plannedCrossChain: useCrossChain,
+          planPreview: describePlan(step, mode, execId),
+          recommendedScript: "contracts/script/reprieve/ExecuteSameChainRescueFromPlan.s.sol",
+          error: errMsg,
+        }
+      );
+    }
     return buildNoAction(config.strategyId, trigger, execId, "ABORT", "executeRescue reverted", {
       user,
       runMode,
       rescueMode: mode,
-      error: error instanceof Error ? error.message : String(error),
+      error: errMsg,
     });
   }
 
@@ -498,11 +674,8 @@ export const runChainlinkApiGuardFlow = (
     );
   } catch {}
   try {
-    finalStatus = readRescueStatus(
-      runtime,
-      chain,
-      config.contracts.rescueExecutor as Address,
-      execId
+    finalStatus = normalizeStatus(
+      readRescueStatus(runtime, chain, config.contracts.rescueExecutor as Address, execId)
     );
   } catch {}
 
@@ -518,24 +691,27 @@ export const runChainlinkApiGuardFlow = (
     strategyId: config.strategyId,
     trigger,
     decision: useCrossChain ? "RESCUE_CROSS_CHAIN" : "RESCUE_SAME_CHAIN",
-    reason: "Rescue plan submitted",
+    reason: "Rescue report submitted",
     settlementState,
     txRefs: [
       {
         chainSelectorName: config.chainSelectorName,
         txHash,
-        label: "executeRescue",
+        label: "writeReport(onReport)",
       },
     ],
     metadata: {
       user,
       runMode,
+      reportReceiver,
       rescueMode: mode,
       sourceAdapter: step.sourceAdapter,
       targetAdapter: step.targetAdapter,
       sourceAsset: step.collateralAsset,
       targetAsset: defaultTargetAsset,
       amount: actionAmount.toString(),
+      sourceFloorHfBps,
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
       crossChain: useCrossChain,
       targetChain: destinationChain.toString(),
       ccipMessageId: messageId,

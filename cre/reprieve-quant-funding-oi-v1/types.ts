@@ -94,6 +94,8 @@ export interface ChainlinkApiSourceConfig {
   priceApiPath: string;
   maxPriceAgeSec: number;
   integritySalt: string;
+  preferOnchainOracle?: boolean;
+  mockOracleAddress?: string;
   mockPricesUsd: Record<string, string>;
 }
 
@@ -458,12 +460,26 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
     maxPriceAgeSec: requireNumber(
       value.maxPriceAgeSec,
       "dataSources.chainlinkApi.maxPriceAgeSec",
-      1
+      0
     ),
     integritySalt: requireString(
       value.integritySalt,
       "dataSources.chainlinkApi.integritySalt"
     ),
+    preferOnchainOracle:
+      value.preferOnchainOracle === undefined
+        ? undefined
+        : requireBoolean(
+            value.preferOnchainOracle,
+            "dataSources.chainlinkApi.preferOnchainOracle"
+          ),
+    mockOracleAddress:
+      value.mockOracleAddress === undefined
+        ? undefined
+        : requireString(
+            value.mockOracleAddress,
+            "dataSources.chainlinkApi.mockOracleAddress"
+          ),
     mockPricesUsd:
       value.mockPricesUsd === undefined
         ? {}

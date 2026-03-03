@@ -5,7 +5,8 @@
   "isTestnet": true,
   "contracts": {
     "rescueExecutor": "0xd2ade981e8db77250DE58ee241529143435E234F",
-    "rescueReporter": "0xD990d952E82784e61852b8D4d465CB40C08F4B7d",
+    "rescueReporter": "0x8F562980983Cb710c943617452C5aF158641e126",
+    "workflowReceiver": "0x8F562980983Cb710c943617452C5aF158641e126",
     "ccipReceiver": "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
   },
   "trigger": {
@@ -51,7 +52,8 @@
   "rescue": {
     "defaultMode": "TOP_UP",
     "allowCrossChain": true,
-    "reserveCapBps": 3000
+    "reserveCapBps": 3000,
+    "minActionUsd": 10
   },
   "crossChain": {
     "sourceChainSelector": "16015286601757825753",
@@ -87,6 +89,8 @@
       "priceApiPath": "/v1/price",
       "maxPriceAgeSec": 120,
       "integritySalt": "reprieve-chainlink-api-guard-v1",
+      "preferOnchainOracle": true,
+      "mockOracleAddress": "0xf7FF29381Be343398e014cB00d48A1c4698BD224",
       "mockPricesUsd": {
         "0x4c87ea388ade37f6a556146b4ff6ff2a12192968": "2000",
         "0x7c31b54eb6712b308cf27aa7e8d2012dcfa92e4e": "1"

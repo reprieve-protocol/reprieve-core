@@ -7,7 +7,8 @@ Profile workflow for `CHAINLINK_API_GUARD_V1`.
 - HTTP primary trigger + cron fallback both run full V1 orchestration flow.
 - V1 risk engine computes decision from adapter snapshots + Chainlink API path/fallback.
 - Planner enforces single-mode rescue (`TOP_UP` or `REPAY`) and builds `executeRescue` plan.
-- Source-chain execution is supported (`executeRescue`) with tx hash + optional CCIP message id capture.
+- Source-chain execution submits signed CRE reports to `ReprieveWorkflowReceiver.onReport`, which then calls `RescueExecutor.executeRescue`.
+- Execution path uses `runtime.report(...)` + `evmClient.writeReport(...)` and captures tx hash + optional CCIP message id.
 - EVM-log reconciliation maps settlement lifecycle:
   - `CrossChainInitiated` -> `DISPATCHED`
   - `CrossChainCompleted` -> `DELIVERED_SUCCESS`
@@ -18,7 +19,7 @@ Profile workflow for `CHAINLINK_API_GUARD_V1`.
 
 - `user` (`0x...`) optional, defaults to `monitoring.defaultUser`
 - `runMode` = `execute | monitor_only | dry_run` (HTTP default: `execute`, cron default: `monitor_only`)
-- `rescueMode` = `TOP_UP | REPAY` (default from config)
+- `rescueMode` is ignored by V1 planner (mode is auto-inferred from source/target position direction)
 - `executionId` (`bytes32`) optional deterministic override
 - `pendingExecId` (`bytes32`) optional pending cross-chain guard
 - `sourceAdapter` / `targetAdapter` optional planning hints
@@ -26,6 +27,8 @@ Profile workflow for `CHAINLINK_API_GUARD_V1`.
 - `targetChainSelector` optional cross-chain override
 - `targetCollateralAsset` / `targetDebtAsset` optional cross-chain asset hints
 - `transferAmount` optional action amount override
+- `workflowReceiver` optional receiver override for `writeReport` (defaults to `contracts.workflowReceiver` then `contracts.rescueReporter`)
+- `sourceFloorHfBps` optional floor HF for rescue source preservation (default: `thresholds.earlyWarningHfBps`)
 - `maxFeeWei` optional max native fee override
 - `deadlineSeconds` optional deadline horizon override
 
@@ -34,3 +37,17 @@ Profile workflow for `CHAINLINK_API_GUARD_V1`.
 - `bun run build`
 - `bun test lib/risk-v1.test.ts`
 - `cre workflow simulate ./reprieve-chainlink-api-guard-v1 --target=staging-settings`
+
+## Simulate with real tx broadcast
+
+- `simulate` defaults to dry execution for writes unless `--broadcast` is provided.
+- For real `writeReport(onReport)` submission and non-zero tx hash:
+
+```bash
+cre workflow simulate ./reprieve-chainlink-api-guard-v1 \
+  --target=staging-settings \
+  --non-interactive \
+  --trigger-index 0 \
+  --broadcast \
+  --http-payload '{"runMode":"execute","user":"0x..."}'
+```
