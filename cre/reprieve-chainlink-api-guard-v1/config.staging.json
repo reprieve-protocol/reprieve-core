@@ -87,7 +87,15 @@
     "chainlinkApi": {
       "priceApiBaseUrl": "https://api.chainlink.example",
       "priceApiPath": "/v1/price",
+      "positionsApiBaseUrl": "http://localhost:3001",
+      "positionsApiPath": "/v1/positions/:address/risk-snapshot",
+      "positionsApiMaxAgeSec": 600,
       "maxPriceAgeSec": 0,
+      "stalePolicy": "WARN_ONLY",
+      "crossChainAssetMap": {
+        "0xedd391fda28993287df301485abf72865dee5050": "0x4c87EA388AdE37f6A556146B4fF6ff2A12192968",
+        "0x7570e1f97e0831e929b9525858586e274f5c9cf2": "0x7C31b54EB6712B308cf27aA7e8d2012DcfA92E4E"
+      },
       "integritySalt": "reprieve-chainlink-api-guard-v1",
       "preferOnchainOracle": true,
       "mockOracleAddress": "0xf7FF29381Be343398e014cB00d48A1c4698BD224",

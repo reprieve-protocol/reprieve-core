@@ -95,7 +95,13 @@ export interface ChainlinkApiSourceConfig {
   priceApiBaseUrl: string;
   priceApiPath: string;
   maxPriceAgeSec: number;
+  stalePolicy?: "ABORT" | "WARN_ONLY";
+  crossChainAssetMap?: Record<string, string>;
   integritySalt: string;
+  positionsApiBaseUrl?: string;
+  positionsApiPath?: string;
+  positionsApiKey?: string;
+  positionsApiMaxAgeSec?: number;
   preferOnchainOracle?: boolean;
   mockOracleAddress?: string;
   mockPricesUsd: Record<string, string>;
@@ -458,6 +464,34 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
     throw new Error('Invalid config at "dataSources.chainlinkApi": expected object');
   }
 
+  const stalePolicyRaw =
+    value.stalePolicy === undefined
+      ? "ABORT"
+      : requireString(value.stalePolicy, "dataSources.chainlinkApi.stalePolicy");
+  if (stalePolicyRaw !== "ABORT" && stalePolicyRaw !== "WARN_ONLY") {
+    throw new Error(
+      'Invalid config at "dataSources.chainlinkApi.stalePolicy": expected ABORT or WARN_ONLY'
+    );
+  }
+
+  const crossChainAssetMapRaw = value.crossChainAssetMap;
+  const crossChainAssetMap: Record<string, string> = {};
+  if (crossChainAssetMapRaw !== undefined) {
+    if (!isRecord(crossChainAssetMapRaw)) {
+      throw new Error(
+        'Invalid config at "dataSources.chainlinkApi.crossChainAssetMap": expected object map'
+      );
+    }
+    for (const [fromAsset, toAssetRaw] of Object.entries(crossChainAssetMapRaw)) {
+      if (typeof toAssetRaw !== "string" || toAssetRaw.trim().length === 0) {
+        throw new Error(
+          `Invalid config at "dataSources.chainlinkApi.crossChainAssetMap.${fromAsset}": expected non-empty string`
+        );
+      }
+      crossChainAssetMap[fromAsset.toLowerCase()] = toAssetRaw.toLowerCase();
+    }
+  }
+
   return {
     priceApiBaseUrl: requireString(
       value.priceApiBaseUrl,
@@ -472,10 +506,41 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
       "dataSources.chainlinkApi.maxPriceAgeSec",
       0
     ),
+    stalePolicy: stalePolicyRaw,
+    crossChainAssetMap,
     integritySalt: requireString(
       value.integritySalt,
       "dataSources.chainlinkApi.integritySalt"
     ),
+    positionsApiBaseUrl:
+      value.positionsApiBaseUrl === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiBaseUrl,
+            "dataSources.chainlinkApi.positionsApiBaseUrl"
+          ),
+    positionsApiPath:
+      value.positionsApiPath === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiPath,
+            "dataSources.chainlinkApi.positionsApiPath"
+          ),
+    positionsApiKey:
+      value.positionsApiKey === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiKey,
+            "dataSources.chainlinkApi.positionsApiKey"
+          ),
+    positionsApiMaxAgeSec:
+      value.positionsApiMaxAgeSec === undefined
+        ? undefined
+        : requireNumber(
+            value.positionsApiMaxAgeSec,
+            "dataSources.chainlinkApi.positionsApiMaxAgeSec",
+            1
+          ),
     preferOnchainOracle:
       value.preferOnchainOracle === undefined
         ? undefined

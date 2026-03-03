@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 import { ChainRegistryService } from '../chains/chain-registry.service';
 import {
@@ -15,7 +15,19 @@ import { AdapterReaderService } from './adapter-reader.service';
 import { PositionSyncError } from './types';
 
 interface ChainContractsConfig {
+  chainId?: number;
   contracts?: Record<string, string>;
+  tokenParams?: {
+    collateral?: { decimals?: number };
+    debt?: { decimals?: number };
+  };
+}
+
+interface ChainTokenMeta {
+  collateralAsset: string;
+  debtAsset: string;
+  collateralDecimals: number;
+  debtDecimals: number;
 }
 
 @Injectable()
@@ -145,6 +157,136 @@ export class PositionsService {
       user: userAddress.toLowerCase(),
       syncedAt: newestSyncedAt ? newestSyncedAt.toISOString() : null,
       positions,
+    };
+  }
+
+  async getRiskSnapshot(
+    userAddress: string,
+    maxAgeSec = 600,
+  ): Promise<{
+    user: string;
+    generatedAt: string;
+    latestSyncedAt: string | null;
+    oldestSyncedAt: string | null;
+    latestAgeSec: number;
+    maxAgeSec: number;
+    isStale: boolean;
+    positionCount: number;
+    chains: Array<{
+      chainId: number;
+      chainKey: string;
+      indexerCursorBlock: string | null;
+    }>;
+    positions: Array<{
+      chainId: number;
+      chainKey: string;
+      protocol: string;
+      adapterAddress: string;
+      collateralAsset: string;
+      debtAsset: string;
+      collateralAmountRaw: string;
+      debtAmountRaw: string;
+      healthFactorWad: string;
+      ltvBps: number | null;
+      maxLtvBps: number | null;
+      liquidationThresholdBps: number | null;
+      collateralDecimals: number;
+      debtDecimals: number;
+      syncedAt: string;
+    }>;
+  }> {
+    const normalizedUser = userAddress.toLowerCase();
+    const positions = await this.positionSnapshotRepository.find({
+      where: { userAddress: normalizedUser },
+      order: { syncedAt: 'DESC' },
+    });
+
+    const chainIds = Array.from(new Set(positions.map((p) => p.chainId)));
+    const chains =
+      chainIds.length === 0
+        ? []
+        : await this.chainRepository.find({
+            where: {
+              chainId: In(chainIds),
+            },
+            order: { chainId: 'ASC' },
+          });
+
+    const chainById = new Map<number, ChainEntity>();
+    for (const chain of chains) {
+      chainById.set(chain.chainId, chain);
+    }
+
+    const tokenMetaByChain = new Map<number, ChainTokenMeta>();
+    for (const chain of chains) {
+      const chainKey = chain.key as SupportedChainKey;
+      if (!SUPPORTED_CHAIN_KEYS.includes(chainKey)) {
+        continue;
+      }
+      const config = this.loadChainContractsConfig(chainKey);
+      const contracts = config.contracts ?? {};
+      tokenMetaByChain.set(chain.chainId, {
+        collateralAsset: (contracts.MockERC20_Collateral ?? '').toLowerCase(),
+        debtAsset: (contracts.MockERC20_Debt ?? '').toLowerCase(),
+        collateralDecimals: config.tokenParams?.collateral?.decimals ?? 18,
+        debtDecimals: config.tokenParams?.debt?.decimals ?? 18,
+      });
+    }
+
+    const now = Date.now();
+    const latestSyncedAt = positions.length > 0 ? positions[0].syncedAt : null;
+    const oldestSyncedAt =
+      positions.length > 0 ? positions[positions.length - 1].syncedAt : null;
+    const latestAgeSec = latestSyncedAt
+      ? Math.floor((now - latestSyncedAt.getTime()) / 1000)
+      : Number.MAX_SAFE_INTEGER;
+    const stale = latestAgeSec > maxAgeSec;
+
+    return {
+      user: normalizedUser,
+      generatedAt: new Date(now).toISOString(),
+      latestSyncedAt: latestSyncedAt ? latestSyncedAt.toISOString() : null,
+      oldestSyncedAt: oldestSyncedAt ? oldestSyncedAt.toISOString() : null,
+      latestAgeSec,
+      maxAgeSec,
+      isStale: stale,
+      positionCount: positions.length,
+      chains: chains.map((chain) => ({
+        chainId: chain.chainId,
+        chainKey: chain.key,
+        indexerCursorBlock: chain.indexerCursorBlock,
+      })),
+      positions: positions.map((position) => {
+        const chain = chainById.get(position.chainId);
+        const meta = tokenMetaByChain.get(position.chainId);
+        const collateralAsset = position.collateralAsset.toLowerCase();
+        const debtAsset = position.debtAsset.toLowerCase();
+
+        const collateralDecimals =
+          meta && collateralAsset === meta.collateralAsset
+            ? meta.collateralDecimals
+            : 18;
+        const debtDecimals =
+          meta && debtAsset === meta.debtAsset ? meta.debtDecimals : 18;
+
+        return {
+          chainId: position.chainId,
+          chainKey: chain?.key ?? 'unknown',
+          protocol: position.protocol,
+          adapterAddress: position.adapterAddress,
+          collateralAsset,
+          debtAsset,
+          collateralAmountRaw: position.collateralAmountRaw,
+          debtAmountRaw: position.debtAmountRaw,
+          healthFactorWad: position.healthFactorWad,
+          ltvBps: position.ltvBps,
+          maxLtvBps: position.maxLtvBps,
+          liquidationThresholdBps: position.liquidationThresholdBps,
+          collateralDecimals,
+          debtDecimals,
+          syncedAt: position.syncedAt.toISOString(),
+        };
+      }),
     };
   }
 

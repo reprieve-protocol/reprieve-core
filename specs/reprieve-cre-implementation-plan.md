@@ -249,6 +249,46 @@ This plan implements [reprieve-cre-workflow-design.md](/Users/sniperman/code/rep
 
 ---
 
+## Slide 4C - Backend Multi-Chain Position Data Plane (API Guard V1)
+
+**Status:** `Completed (code/build)`
+
+### Development Scope
+- Move `CHAINLINK_API_GUARD_V1` position discovery from per-run on-chain adapter reads to backend aggregated position snapshots.
+- Keep risk math and decisioning in CRE, but feed it with backend-synced cross-chain positions.
+
+### Build Tasks
+- Add CRE config fields for backend positions source:
+  - `positionsApiBaseUrl`
+  - `positionsApiPath`
+  - `positionsApiMaxAgeSec`
+  - optional `positionsApiKey`
+- Integrate backend fetch in `risk-v1`:
+  - call `/v1/positions/:address/risk-snapshot`
+  - parse adapter positions, decimals, and freshness metadata
+  - fail-closed (`ABORT`) when snapshot is stale or fetch fails
+- Build adapter snapshots for planner from backend response (label/address/positions/source collateral).
+- Output `decimalsByAsset` from risk layer so planner does not rely only on source-chain token decimal reads.
+- Update planner to consume `decimalsByAsset` first, with on-chain decimals as fallback.
+
+### Testing Scope
+- Type/build verification for CRE workflow with new backend-driven source path.
+- Validate that missing/stale backend snapshots return deterministic `ABORT`.
+- Validate planner compiles/works with `decimalsByAsset` handoff.
+
+### Acceptance Criteria
+- API Guard can evaluate risk using backend multi-chain position state in one run.
+- CRE no longer depends on reading all adapters on-chain each run to build position context.
+- Snapshot freshness gate prevents acting on stale backend state.
+
+### Validation Checklist
+- [x] Backend `risk-snapshot` endpoint wired into API Guard config/model.
+- [x] `risk-v1` fetches/parses backend snapshot and builds adapter snapshots.
+- [x] Stale/fetch-failure behavior is fail-closed (`ABORT`).
+- [x] Planner uses risk-layer `decimalsByAsset` before local chain fallback.
+
+---
+
 ## Slide 5 - Risk Engine V2: QUANT_FUNDING_OI_V1
 
 ### Development Scope

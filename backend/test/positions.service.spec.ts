@@ -174,4 +174,44 @@ describe('PositionsService', () => {
     expect(result.user).toBe('0x7fbbc4abd42f91a6e3861d33a67dec13558658b5');
     expect(typeof result.syncedAt).toBe('string');
   });
+
+  it('returns CRE-ready risk snapshot with chain + decimals metadata', async () => {
+    const service = makeService();
+
+    positionSnapshotRepository.find.mockResolvedValue([
+      {
+        chainId: 11155111,
+        protocol: 'AAVE',
+        adapterAddress: '0x9a2389d74e6318c67824339e37450437b4de7027',
+        collateralAsset: '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968',
+        debtAsset: '0x7C31b54EB6712B308cf27aA7e8d2012DcfA92E4E',
+        collateralAmountRaw: '1000000000000000000',
+        debtAmountRaw: '5000000000',
+        healthFactorWad: '1200000000000000000',
+        ltvBps: 7500,
+        maxLtvBps: 7500,
+        liquidationThresholdBps: 8000,
+        syncedAt: new Date(Date.now() - 30_000),
+      },
+    ]);
+    chainRepository.find.mockResolvedValue([
+      {
+        chainId: 11155111,
+        key: 'ethereum-sepolia',
+        indexerCursorBlock: '10370000',
+      },
+    ]);
+
+    const snapshot = await service.getRiskSnapshot(
+      '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+      600,
+    );
+
+    expect(snapshot.user).toBe('0x7fbbc4abd42f91a6e3861d33a67dec13558658b5');
+    expect(snapshot.positionCount).toBe(1);
+    expect(snapshot.isStale).toBe(false);
+    expect(snapshot.chains[0]?.chainKey).toBe('ethereum-sepolia');
+    expect(snapshot.positions[0]?.collateralDecimals).toBe(18);
+    expect(snapshot.positions[0]?.debtDecimals).toBe(6);
+  });
 });

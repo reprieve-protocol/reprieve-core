@@ -17250,11 +17250,34 @@ var parseChainlinkApiSource = (value2) => {
   if (!isRecord(value2)) {
     throw new Error('Invalid config at "dataSources.chainlinkApi": expected object');
   }
+  const stalePolicyRaw = value2.stalePolicy === undefined ? "ABORT" : requireString(value2.stalePolicy, "dataSources.chainlinkApi.stalePolicy");
+  if (stalePolicyRaw !== "ABORT" && stalePolicyRaw !== "WARN_ONLY") {
+    throw new Error('Invalid config at "dataSources.chainlinkApi.stalePolicy": expected ABORT or WARN_ONLY');
+  }
+  const crossChainAssetMapRaw = value2.crossChainAssetMap;
+  const crossChainAssetMap = {};
+  if (crossChainAssetMapRaw !== undefined) {
+    if (!isRecord(crossChainAssetMapRaw)) {
+      throw new Error('Invalid config at "dataSources.chainlinkApi.crossChainAssetMap": expected object map');
+    }
+    for (const [fromAsset, toAssetRaw] of Object.entries(crossChainAssetMapRaw)) {
+      if (typeof toAssetRaw !== "string" || toAssetRaw.trim().length === 0) {
+        throw new Error(`Invalid config at "dataSources.chainlinkApi.crossChainAssetMap.${fromAsset}": expected non-empty string`);
+      }
+      crossChainAssetMap[fromAsset.toLowerCase()] = toAssetRaw.toLowerCase();
+    }
+  }
   return {
     priceApiBaseUrl: requireString(value2.priceApiBaseUrl, "dataSources.chainlinkApi.priceApiBaseUrl"),
     priceApiPath: requireString(value2.priceApiPath, "dataSources.chainlinkApi.priceApiPath"),
     maxPriceAgeSec: requireNumber(value2.maxPriceAgeSec, "dataSources.chainlinkApi.maxPriceAgeSec", 0),
+    stalePolicy: stalePolicyRaw,
+    crossChainAssetMap,
     integritySalt: requireString(value2.integritySalt, "dataSources.chainlinkApi.integritySalt"),
+    positionsApiBaseUrl: value2.positionsApiBaseUrl === undefined ? undefined : requireString(value2.positionsApiBaseUrl, "dataSources.chainlinkApi.positionsApiBaseUrl"),
+    positionsApiPath: value2.positionsApiPath === undefined ? undefined : requireString(value2.positionsApiPath, "dataSources.chainlinkApi.positionsApiPath"),
+    positionsApiKey: value2.positionsApiKey === undefined ? undefined : requireString(value2.positionsApiKey, "dataSources.chainlinkApi.positionsApiKey"),
+    positionsApiMaxAgeSec: value2.positionsApiMaxAgeSec === undefined ? undefined : requireNumber(value2.positionsApiMaxAgeSec, "dataSources.chainlinkApi.positionsApiMaxAgeSec", 1),
     preferOnchainOracle: value2.preferOnchainOracle === undefined ? undefined : requireBoolean(value2.preferOnchainOracle, "dataSources.chainlinkApi.preferOnchainOracle"),
     mockOracleAddress: value2.mockOracleAddress === undefined ? undefined : requireString(value2.mockOracleAddress, "dataSources.chainlinkApi.mockOracleAddress"),
     mockPricesUsd: value2.mockPricesUsd === undefined ? {} : parseStringNumberMap(value2.mockPricesUsd, "dataSources.chainlinkApi.mockPricesUsd")
@@ -17817,6 +17840,215 @@ var normalizeApiReports = (raw, fallbackTimestamp) => {
   }
   return [];
 };
+var ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+var toOptionalAddress = (value2) => {
+  if (typeof value2 !== "string" || !ADDRESS_REGEX.test(value2)) {
+    return;
+  }
+  return value2.toLowerCase();
+};
+var toOptionalBigInt = (value2) => {
+  if (typeof value2 === "bigint")
+    return value2;
+  if (typeof value2 === "number" && Number.isFinite(value2)) {
+    return BigInt(Math.trunc(value2));
+  }
+  if (typeof value2 === "string" && /^[0-9]+$/.test(value2)) {
+    return BigInt(value2);
+  }
+  return;
+};
+var toBpsBigInt = (value2, fallback) => {
+  const raw = value2 ?? fallback;
+  return BigInt(Math.max(0, Math.trunc(raw)));
+};
+var toPositiveInt = (value2, fallback) => {
+  if (typeof value2 === "number" && Number.isFinite(value2) && value2 > 0) {
+    return Math.trunc(value2);
+  }
+  if (typeof value2 === "string" && value2.trim().length > 0) {
+    const parsed = Number(value2);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.trunc(parsed);
+    }
+  }
+  return fallback;
+};
+var resolvePositionsSnapshotUrl = (baseUrl, path, user, maxAgeSec) => {
+  let resolvedPath = path;
+  if (resolvedPath.includes(":address")) {
+    resolvedPath = resolvedPath.replace(":address", user);
+  } else if (resolvedPath.includes("{address}")) {
+    resolvedPath = resolvedPath.replace("{address}", user);
+  }
+  const absolute = resolvedPath.startsWith("http://") || resolvedPath.startsWith("https://");
+  let url = absolute ? resolvedPath : `${baseUrl.replace(/\/+$/, "")}/${resolvedPath.replace(/^\/+/, "")}`;
+  if (maxAgeSec && maxAgeSec > 0) {
+    const hasQuery = url.includes("?");
+    url = `${url}${hasQuery ? "&" : "?"}maxAgeSec=${maxAgeSec}`;
+  }
+  return url;
+};
+var loadBackendRiskSnapshot = (runtime2, config, user) => {
+  const source = config.dataSources.chainlinkApi;
+  if (!source.positionsApiBaseUrl || !source.positionsApiPath) {
+    throw new Error("Backend positions API is not configured");
+  }
+  const url = resolvePositionsSnapshotUrl(source.positionsApiBaseUrl, source.positionsApiPath, user, source.positionsApiMaxAgeSec);
+  const wire = runtime2.runInNodeMode((nodeRuntime) => {
+    const client = new ClientCapability3;
+    const headers = {
+      "content-type": "application/json"
+    };
+    if (source.positionsApiKey && source.positionsApiKey.trim().length > 0) {
+      headers["x-api-key"] = source.positionsApiKey;
+    }
+    const response = client.sendRequest(nodeRuntime, {
+      url,
+      method: "GET",
+      headers
+    }).result();
+    if (!ok(response)) {
+      throw new Error(`Backend positions API failed with status ${response.statusCode}`);
+    }
+    const payload2 = json(response);
+    return {
+      user: typeof payload2.user === "string" ? payload2.user : undefined,
+      latestSyncedAt: typeof payload2.latestSyncedAt === "string" ? payload2.latestSyncedAt : undefined,
+      latestAgeSec: typeof payload2.latestAgeSec === "number" ? payload2.latestAgeSec : undefined,
+      maxAgeSec: typeof payload2.maxAgeSec === "number" ? payload2.maxAgeSec : undefined,
+      isStale: payload2.isStale === true,
+      positions: Array.isArray(payload2.positions) ? payload2.positions.map((position) => ({
+        chainId: typeof position.chainId === "number" ? position.chainId : undefined,
+        chainKey: typeof position.chainKey === "string" ? position.chainKey : undefined,
+        protocol: typeof position.protocol === "string" ? position.protocol : undefined,
+        adapterAddress: typeof position.adapterAddress === "string" ? position.adapterAddress : undefined,
+        collateralAsset: typeof position.collateralAsset === "string" ? position.collateralAsset : undefined,
+        debtAsset: typeof position.debtAsset === "string" ? position.debtAsset : undefined,
+        collateralAmountRaw: typeof position.collateralAmountRaw === "string" ? position.collateralAmountRaw : undefined,
+        debtAmountRaw: typeof position.debtAmountRaw === "string" ? position.debtAmountRaw : undefined,
+        healthFactorWad: typeof position.healthFactorWad === "string" ? position.healthFactorWad : undefined,
+        ltvBps: typeof position.ltvBps === "number" ? position.ltvBps : undefined,
+        maxLtvBps: typeof position.maxLtvBps === "number" ? position.maxLtvBps : undefined,
+        liquidationThresholdBps: typeof position.liquidationThresholdBps === "number" ? position.liquidationThresholdBps : undefined,
+        collateralDecimals: typeof position.collateralDecimals === "number" ? position.collateralDecimals : undefined,
+        debtDecimals: typeof position.debtDecimals === "number" ? position.debtDecimals : undefined
+      })) : []
+    };
+  }, consensusIdenticalAggregation())().result();
+  const payload = {
+    user: wire.user,
+    latestSyncedAt: wire.latestSyncedAt,
+    latestAgeSec: wire.latestAgeSec,
+    maxAgeSec: wire.maxAgeSec,
+    isStale: wire.isStale,
+    positions: wire.positions?.map((position) => ({
+      chainId: position.chainId,
+      chainKey: position.chainKey,
+      protocol: position.protocol,
+      adapterAddress: position.adapterAddress,
+      collateralAsset: position.collateralAsset,
+      debtAsset: position.debtAsset,
+      collateralAmountRaw: position.collateralAmountRaw,
+      debtAmountRaw: position.debtAmountRaw,
+      healthFactorWad: position.healthFactorWad,
+      ltvBps: position.ltvBps,
+      maxLtvBps: position.maxLtvBps,
+      liquidationThresholdBps: position.liquidationThresholdBps,
+      collateralDecimals: position.collateralDecimals,
+      debtDecimals: position.debtDecimals
+    }))
+  };
+  if (!Array.isArray(payload.positions)) {
+    throw new Error("Backend positions API returned invalid payload");
+  }
+  return payload;
+};
+var buildSnapshotsFromBackend = (runtime2, config, snapshot) => {
+  const adapterConfigByAddress = new Map;
+  for (const adapter of config.monitoring.adapters) {
+    adapterConfigByAddress.set(adapter.adapterAddress.toLowerCase(), adapter);
+  }
+  const grouped = new Map;
+  const decimalsByAsset = {};
+  for (const rawPosition of snapshot.positions ?? []) {
+    const adapterAddress = toOptionalAddress(rawPosition.adapterAddress);
+    const collateralAsset = toOptionalAddress(rawPosition.collateralAsset);
+    const debtAsset = toOptionalAddress(rawPosition.debtAsset);
+    const collateralAmount = toOptionalBigInt(rawPosition.collateralAmountRaw);
+    const debtAmount = toOptionalBigInt(rawPosition.debtAmountRaw);
+    const healthFactor = toOptionalBigInt(rawPosition.healthFactorWad);
+    if (!adapterAddress || !collateralAsset || !debtAsset) {
+      continue;
+    }
+    if (collateralAmount === undefined || debtAmount === undefined) {
+      continue;
+    }
+    const chainId = Number(rawPosition.chainId ?? 0);
+    const chainKey = typeof rawPosition.chainKey === "string" ? rawPosition.chainKey : "unknown";
+    const groupKey = `${chainId}:${adapterAddress.toLowerCase()}`;
+    const adapterConfig = adapterConfigByAddress.get(adapterAddress.toLowerCase());
+    const labelBase = adapterConfig?.label ?? `${(rawPosition.protocol ?? "adapter").toString().toLowerCase()}-${chainKey}`;
+    const label = `${labelBase}@${chainKey}`;
+    const position = {
+      protocol: "0x0000000000000000000000000000000000000000",
+      collateralAsset,
+      debtAsset,
+      collateralAmount,
+      debtAmount,
+      healthFactor: healthFactor ?? MAX_HF_WAD,
+      ltvBps: toBpsBigInt(rawPosition.ltvBps, 7500),
+      maxLtvBps: toBpsBigInt(rawPosition.maxLtvBps, 7500),
+      liquidationThresholdBps: toBpsBigInt(rawPosition.liquidationThresholdBps, 8000)
+    };
+    const existing = grouped.get(groupKey);
+    if (!existing) {
+      grouped.set(groupKey, {
+        label,
+        adapterAddress,
+        positions: [position],
+        availableCollateral: collateralAmount,
+        hfWad: debtAmount > 0n ? position.healthFactor : MAX_HF_WAD,
+        rescueTargetChainSelector: adapterConfig?.rescueTargetChainSelector,
+        preferCrossChain: adapterConfig?.preferCrossChain ?? false,
+        debtBearingSeen: debtAmount > 0n
+      });
+    } else {
+      existing.positions.push(position);
+      existing.availableCollateral += collateralAmount;
+      if (debtAmount > 0n) {
+        existing.debtBearingSeen = true;
+        if (position.healthFactor < existing.hfWad) {
+          existing.hfWad = position.healthFactor;
+        }
+      }
+    }
+    const collateralDecimals = toPositiveInt(rawPosition.collateralDecimals, 18);
+    const debtDecimals = toPositiveInt(rawPosition.debtDecimals, 18);
+    decimalsByAsset[collateralAsset.toLowerCase()] = collateralDecimals;
+    decimalsByAsset[debtAsset.toLowerCase()] = debtDecimals;
+  }
+  const snapshots = Array.from(grouped.values()).map((group) => ({
+    label: group.label,
+    adapterAddress: group.adapterAddress,
+    positions: group.positions,
+    hfWad: group.debtBearingSeen ? group.hfWad : MAX_HF_WAD,
+    availableCollateral: group.availableCollateral,
+    rescueTargetChainSelector: group.rescueTargetChainSelector,
+    preferCrossChain: group.preferCrossChain
+  }));
+  const latestAgeSec = toPositiveInt(snapshot.latestAgeSec, Number.MAX_SAFE_INTEGER);
+  const configuredMaxAge = toPositiveInt(config.dataSources.chainlinkApi.positionsApiMaxAgeSec, toPositiveInt(snapshot.maxAgeSec, 600));
+  const staleByFlag = snapshot.isStale === true;
+  const staleByAge = latestAgeSec > configuredMaxAge;
+  runtime2.log(`[V1] Backend positions loaded: count=${snapshots.length} latestAgeSec=${latestAgeSec} maxAgeSec=${configuredMaxAge} stale=${staleByFlag || staleByAge}`);
+  return {
+    snapshots,
+    decimalsByAsset,
+    latestAgeSec,
+    isStale: staleByFlag || staleByAge
+  };
+};
 var loadApiReports = (runtime2, config, assets) => {
   const query = encodeURIComponent(assets.join(","));
   const url = `${config.dataSources.chainlinkApi.priceApiBaseUrl}${config.dataSources.chainlinkApi.priceApiPath}?assets=${query}`;
@@ -17918,6 +18150,13 @@ var computeShockBps = (report2) => {
   const diff = nowWad > prevWad ? nowWad - prevWad : prevWad - nowWad;
   return Number(diff * BPS_DENOM / prevWad);
 };
+var canonicalizeAsset = (asset, crossChainAssetMap) => {
+  const mapped = crossChainAssetMap[asset.toLowerCase()];
+  if (!mapped || !ADDRESS_REGEX.test(mapped)) {
+    return asset.toLowerCase();
+  }
+  return mapped.toLowerCase();
+};
 var evaluateDecision = (weakestEffectiveHfWad, config, snapshots) => {
   const minHfWad = bpsToWad(config.thresholds.onchainHfMinBps);
   const earlyHfWad = bpsToWad(config.thresholds.earlyWarningHfBps);
@@ -17934,36 +18173,82 @@ var evaluateDecision = (weakestEffectiveHfWad, config, snapshots) => {
   return "NO_ACTION";
 };
 var evaluateChainlinkApiGuard = (runtime2, config, user) => {
+  const stalePolicy = config.dataSources.chainlinkApi.stalePolicy ?? "ABORT";
   const chain = {
     chainSelectorName: config.chainSelectorName,
     isTestnet: config.isTestnet
   };
-  const snapshots = [];
+  let snapshots = [];
+  let decimalsByAsset = {};
+  let positionSource = "onchain";
   const adapterReadErrors = [];
-  for (const adapterCfg of config.monitoring.adapters) {
-    const adapterAddress = adapterCfg.adapterAddress;
-    let positions = [];
-    let hfWad = 0n;
-    let availableCollateral = 0n;
+  const hasBackendPositionsApi = !!config.dataSources.chainlinkApi.positionsApiBaseUrl && !!config.dataSources.chainlinkApi.positionsApiPath;
+  if (hasBackendPositionsApi) {
     try {
-      positions = discoverPositions(runtime2, chain, adapterAddress, user);
-      if (positions.length === 0)
-        continue;
-      hfWad = readHealthFactor(runtime2, chain, adapterAddress, user);
-      availableCollateral = readAvailableCollateral(runtime2, chain, adapterAddress, user, positions[0].collateralAsset);
+      const backendPayload = loadBackendRiskSnapshot(runtime2, config, user);
+      const backend = buildSnapshotsFromBackend(runtime2, config, backendPayload);
+      snapshots = backend.snapshots;
+      decimalsByAsset = backend.decimalsByAsset;
+      positionSource = "backend";
+      if (backend.isStale) {
+        if (stalePolicy === "ABORT") {
+          return {
+            decision: "ABORT",
+            reason: "Backend risk snapshot is stale",
+            metadata: {
+              user,
+              positionSource,
+              latestAgeSec: backend.latestAgeSec,
+              positionsApiMaxAgeSec: config.dataSources.chainlinkApi.positionsApiMaxAgeSec ?? 600,
+              stalePolicy
+            },
+            snapshots: [],
+            priceByAsset: {},
+            decimalsByAsset: {}
+          };
+        }
+        runtime2.log(`[V1] WARN_ONLY: backend snapshot is stale (latestAgeSec=${backend.latestAgeSec})`);
+      }
     } catch (error) {
-      adapterReadErrors.push(`${adapterCfg.label}:${error instanceof Error ? error.message : String(error)}`);
-      continue;
+      return {
+        decision: "ABORT",
+        reason: "Backend risk snapshot fetch failed",
+        metadata: {
+          user,
+          positionSource: "backend",
+          error: error instanceof Error ? error.message : String(error)
+        },
+        snapshots: [],
+        priceByAsset: {},
+        decimalsByAsset: {}
+      };
     }
-    snapshots.push({
-      label: adapterCfg.label,
-      adapterAddress,
-      positions,
-      hfWad,
-      availableCollateral,
-      rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
-      preferCrossChain: adapterCfg.preferCrossChain ?? false
-    });
+  } else {
+    for (const adapterCfg of config.monitoring.adapters) {
+      const adapterAddress = adapterCfg.adapterAddress;
+      let positions = [];
+      let hfWad = 0n;
+      let availableCollateral = 0n;
+      try {
+        positions = discoverPositions(runtime2, chain, adapterAddress, user);
+        if (positions.length === 0)
+          continue;
+        hfWad = readHealthFactor(runtime2, chain, adapterAddress, user);
+        availableCollateral = readAvailableCollateral(runtime2, chain, adapterAddress, user, positions[0].collateralAsset);
+      } catch (error) {
+        adapterReadErrors.push(`${adapterCfg.label}:${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      snapshots.push({
+        label: adapterCfg.label,
+        adapterAddress,
+        positions,
+        hfWad,
+        availableCollateral,
+        rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
+        preferCrossChain: adapterCfg.preferCrossChain ?? false
+      });
+    }
   }
   if (snapshots.length === 0) {
     runtime2.log("[V1] No positions discovered for monitored adapters.");
@@ -17972,10 +18257,12 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       reason: "No positions found for monitored adapters",
       metadata: {
         user,
+        positionSource,
         adapterReadErrors: adapterReadErrors.length
       },
       snapshots: [],
-      priceByAsset: {}
+      priceByAsset: {},
+      decimalsByAsset: {}
     };
   }
   const uniqueAssets = new Set;
@@ -17985,12 +18272,37 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       uniqueAssets.add(p.debtAsset);
     }
   }
-  const reports = loadReportsWithFallback(runtime2, config, chain, Array.from(uniqueAssets));
+  const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
+  const canonicalByAsset = new Map;
+  const canonicalAssets = new Set;
+  for (const asset of uniqueAssets) {
+    const canonical = canonicalizeAsset(asset, crossChainAssetMap);
+    canonicalByAsset.set(asset.toLowerCase(), canonical);
+    canonicalAssets.add(canonical);
+    if (canonical !== asset.toLowerCase()) {
+      runtime2.log(`[V1][asset-map] ${asset.toLowerCase()} -> ${canonical}`);
+    }
+  }
+  const reports = loadReportsWithFallback(runtime2, config, chain, Array.from(canonicalAssets));
   const priceByAsset = {};
+  const canonicalReportMap = new Map;
   const reportMap = new Map;
   for (const report2 of reports) {
-    reportMap.set(report2.asset.toLowerCase(), report2);
-    priceByAsset[report2.asset.toLowerCase()] = report2.priceUsd;
+    canonicalReportMap.set(report2.asset.toLowerCase(), report2);
+  }
+  for (const asset of uniqueAssets) {
+    const normalizedAsset = asset.toLowerCase();
+    const canonicalAsset = canonicalByAsset.get(normalizedAsset) ?? normalizedAsset;
+    const canonicalReport = canonicalReportMap.get(canonicalAsset);
+    if (!canonicalReport) {
+      continue;
+    }
+    const remappedReport = {
+      ...canonicalReport,
+      asset: normalizedAsset
+    };
+    reportMap.set(normalizedAsset, remappedReport);
+    priceByAsset[normalizedAsset] = canonicalReport.priceUsd;
   }
   let missingPriceCount = 0;
   let invalidReportCount = 0;
@@ -18013,9 +18325,13 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     const ageSec = nowSec - report2.updatedAt;
     const shock = computeShockBps(report2);
     runtime2.log(`[V1][price] asset=${asset} priceUsd=${report2.priceUsd} source=${report2.source} ageSec=${ageSec} shockBps=${shock}`);
-    if (stalenessChecksEnabled && ageSec > maxPriceAgeSec) {
+    const isStale = stalenessChecksEnabled && ageSec > maxPriceAgeSec;
+    if (isStale) {
       staleReportCount += 1;
-      continue;
+      if (stalePolicy === "ABORT") {
+        continue;
+      }
+      runtime2.log(`[V1] WARN_ONLY: stale price report accepted asset=${asset} ageSec=${ageSec}`);
     }
     if (report2.source === "api") {
       if (!verifyReportIntegrity(report2, config.dataSources.chainlinkApi.integritySalt)) {
@@ -18038,18 +18354,23 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       reason: `Missing prices for ${missingPriceCount} assets`,
       metadata: { missingPriceCount },
       snapshots,
-      priceByAsset
+      priceByAsset,
+      decimalsByAsset
     };
   }
   if (stalenessChecksEnabled && staleReportCount > 0) {
-    runtime2.log(`[V1] Abort: stale reports count=${staleReportCount}.`);
-    return {
-      decision: "ABORT",
-      reason: `Stale reports detected: ${staleReportCount}`,
-      metadata: { staleReportCount },
-      snapshots,
-      priceByAsset
-    };
+    if (stalePolicy === "ABORT") {
+      runtime2.log(`[V1] Abort: stale reports count=${staleReportCount}.`);
+      return {
+        decision: "ABORT",
+        reason: `Stale reports detected: ${staleReportCount}`,
+        metadata: { staleReportCount, stalePolicy },
+        snapshots,
+        priceByAsset,
+        decimalsByAsset
+      };
+    }
+    runtime2.log(`[V1] WARN_ONLY: stale reports count=${staleReportCount}.`);
   }
   if (invalidReportCount > 0) {
     runtime2.log(`[V1] Abort: integrity verification failures=${invalidReportCount}.`);
@@ -18058,7 +18379,8 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       reason: `Integrity verification failed for ${invalidReportCount} reports`,
       metadata: { invalidReportCount },
       snapshots,
-      priceByAsset
+      priceByAsset,
+      decimalsByAsset
     };
   }
   if (maxShockBps >= config.monitoring.priceShockAbortBps) {
@@ -18068,7 +18390,8 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       reason: `Price shock exceeded abort threshold (${maxShockBps} bps)`,
       metadata: { maxShockBps, thresholdBps: config.monitoring.priceShockAbortBps },
       snapshots,
-      priceByAsset
+      priceByAsset,
+      decimalsByAsset
     };
   }
   const decimalsCache = new Map;
@@ -18078,6 +18401,11 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     const cached = decimalsCache.get(key);
     if (cached !== undefined)
       return cached;
+    const fromPositions = decimalsByAsset[key];
+    if (typeof fromPositions === "number" && fromPositions > 0) {
+      decimalsCache.set(key, fromPositions);
+      return fromPositions;
+    }
     let value2 = 18;
     try {
       value2 = readTokenDecimals(runtime2, chain, key);
@@ -18085,6 +18413,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       decimalsReadErrors += 1;
     }
     decimalsCache.set(key, value2);
+    decimalsByAsset[key] = value2;
     return value2;
   };
   let totalEffectiveCollateralUsdWad = 0n;
@@ -18138,6 +18467,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
     reason: `Guard evaluated with weakest effective HF ${weakestEffectiveHf} (aggregate ${effectiveHf})`,
     metadata: {
       user,
+      positionSource,
       adaptersMonitored: snapshots.length,
       positionsAnalyzed,
       reportsUsed: reports.length,
@@ -18151,11 +18481,14 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       stalenessPenaltyBps: Number(maxStalenessPenaltyBps),
       slopePenaltyBps: Number(slopePenaltyBps),
       maxShockBps,
+      stalePolicy,
+      staleReportCount,
       adapterReadErrors: adapterReadErrors.length,
       decimalsReadErrors
     },
     snapshots,
-    priceByAsset
+    priceByAsset,
+    decimalsByAsset
   };
 };
 var WAD2 = 10n ** 18n;
@@ -18489,6 +18822,11 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     const cached = decimalsCache.get(key);
     if (cached !== undefined)
       return cached;
+    const fromGuard = guard.decimalsByAsset[key];
+    if (typeof fromGuard === "number" && fromGuard > 0) {
+      decimalsCache.set(key, fromGuard);
+      return fromGuard;
+    }
     try {
       const value2 = readTokenDecimals(runtime2, chain, asset);
       decimalsCache.set(key, value2);

@@ -440,6 +440,11 @@ export const runChainlinkApiGuardFlow = (
     const key = asset.toLowerCase();
     const cached = decimalsCache.get(key);
     if (cached !== undefined) return cached;
+    const fromGuard = guard.decimalsByAsset[key];
+    if (typeof fromGuard === "number" && fromGuard > 0) {
+      decimalsCache.set(key, fromGuard);
+      return fromGuard;
+    }
     try {
       const value = readTokenDecimals(runtime, chain, asset);
       decimalsCache.set(key, value);
