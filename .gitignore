@@ -2,3 +2,6 @@
 .env.local
 .DS_Store
 wiring.env.sh
+*/node_modules
+.npm-cache
+*/.env

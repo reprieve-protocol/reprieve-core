@@ -25,24 +25,24 @@ Eth -> Base:
 
 ```bash
 RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-demo ethereum-sepolia
-./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id-from-previous-output>
+./scripts/ops.sh cross-chain-rescue-relay ethereum-sepolia base-sepolia <message-id>
 ```
 
 Base -> Eth:
 
 ```bash
 RESCUE_MODE=TOP_UP ./scripts/ops.sh cross-chain-demo base-sepolia
-./scripts/ops.sh mock-relay base-sepolia ethereum-sepolia <message-id-from-previous-output>
+./scripts/ops.sh cross-chain-rescue-relay base-sepolia ethereum-sepolia <message-id>
 ```
 
 4. Repeat cross-chain for repay mode
 
 ```bash
 RESCUE_MODE=REPAY ./scripts/ops.sh cross-chain-demo ethereum-sepolia
-./scripts/ops.sh mock-relay ethereum-sepolia base-sepolia <message-id>
+./scripts/ops.sh cross-chain-rescue-relay ethereum-sepolia base-sepolia <message-id>
 ```
 
 ```bash
 RESCUE_MODE=REPAY ./scripts/ops.sh cross-chain-demo base-sepolia
-./scripts/ops.sh mock-relay base-sepolia ethereum-sepolia <message-id>
+./scripts/ops.sh cross-chain-rescue-relay base-sepolia ethereum-sepolia <message-id>
 ```
