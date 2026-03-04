@@ -1,4 +1,7 @@
 import { ChainEntity } from './chain.entity';
+import { DemoWalletBootstrapRunEntity } from './demo-wallet-bootstrap-run.entity';
+import { DemoWalletFundingRunEntity } from './demo-wallet-funding-run.entity';
+import { DemoWalletEntity } from './demo-wallet.entity';
 import { PositionSnapshotEntity } from './position-snapshot.entity';
 import { ProtocolAdapterEntity } from './protocol-adapter.entity';
 import { RelayJobEntity } from './relay-job.entity';
@@ -12,6 +15,9 @@ export const PERSISTENCE_ENTITIES = [
   RescueEventEntity,
   RescueExecutionEntity,
   RelayJobEntity,
+  DemoWalletEntity,
+  DemoWalletFundingRunEntity,
+  DemoWalletBootstrapRunEntity,
 ];
 
 export {
@@ -21,4 +27,7 @@ export {
   RescueEventEntity,
   RescueExecutionEntity,
   RelayJobEntity,
+  DemoWalletEntity,
+  DemoWalletFundingRunEntity,
+  DemoWalletBootstrapRunEntity,
 };
