@@ -17226,8 +17226,7 @@ var parseMonitoredAdapter = (value2, path) => {
   return {
     label: requireString(value2.label, `${path}.label`),
     adapterAddress: requireString(value2.adapterAddress, `${path}.adapterAddress`),
-    rescueTargetChainSelector: value2.rescueTargetChainSelector === undefined ? undefined : requireString(value2.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`),
-    preferCrossChain: value2.preferCrossChain === undefined ? undefined : requireBoolean(value2.preferCrossChain, `${path}.preferCrossChain`)
+    rescueTargetChainSelector: value2.rescueTargetChainSelector === undefined ? undefined : requireString(value2.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`)
   };
 };
 var parseMonitoring = (value2) => {
@@ -17704,12 +17703,13 @@ var encodeRescuePlanReport = (plan) => encodeAbiParameters(RESCUE_PLAN_REPORT_PA
     plan.maxFee
   ]
 ]);
-var submitRescuePlanReport = (runtime2, chain, workflowReceiverAddress, plan, gasLimit = "1200000") => {
+var submitRescuePlanReport = (runtime2, chain, workflowReceiverAddress, plan, gasLimit = "2500000") => {
   const evmClient = createEvmClient(chain);
   const reportPayload = encodeRescuePlanReport(plan);
   runtime2.log("Submitting rescue report");
   runtime2.log(`Report receiver: ${workflowReceiverAddress}`);
   runtime2.log(`Execution id: ${plan.execId}`);
+  runtime2.log(`Report gas limit: ${gasLimit}`);
   const reportResponse = runtime2.report({
     encodedPayload: hexToBase64(reportPayload),
     encoderName: "evm",
@@ -18009,8 +18009,10 @@ var buildSnapshotsFromBackend = (runtime2, config, snapshot) => {
         positions: [position],
         availableCollateral: collateralAmount,
         hfWad: debtAmount > 0n ? position.healthFactor : MAX_HF_WAD,
+        chainId,
+        chainKey,
+        isConfiguredAdapter: !!adapterConfig,
         rescueTargetChainSelector: adapterConfig?.rescueTargetChainSelector,
-        preferCrossChain: adapterConfig?.preferCrossChain ?? false,
         debtBearingSeen: debtAmount > 0n
       });
     } else {
@@ -18034,8 +18036,10 @@ var buildSnapshotsFromBackend = (runtime2, config, snapshot) => {
     positions: group.positions,
     hfWad: group.debtBearingSeen ? group.hfWad : MAX_HF_WAD,
     availableCollateral: group.availableCollateral,
-    rescueTargetChainSelector: group.rescueTargetChainSelector,
-    preferCrossChain: group.preferCrossChain
+    chainId: group.chainId,
+    chainKey: group.chainKey,
+    isConfiguredAdapter: group.isConfiguredAdapter,
+    rescueTargetChainSelector: group.rescueTargetChainSelector
   }));
   const latestAgeSec = toPositiveInt(snapshot.latestAgeSec, Number.MAX_SAFE_INTEGER);
   const configuredMaxAge = toPositiveInt(config.dataSources.chainlinkApi.positionsApiMaxAgeSec, toPositiveInt(snapshot.maxAgeSec, 600));
@@ -18157,17 +18161,28 @@ var canonicalizeAsset = (asset, crossChainAssetMap) => {
   }
   return mapped.toLowerCase();
 };
-var evaluateDecision = (weakestEffectiveHfWad, config, snapshots) => {
+var evaluateDecision = (weakestEffectiveHfWad, config, snapshots, weakestPositionChainId, weakestPositionChainKey) => {
   const minHfWad = bpsToWad(config.thresholds.onchainHfMinBps);
   const earlyHfWad = bpsToWad(config.thresholds.earlyWarningHfBps);
-  const prefersCrossChain = snapshots.some((s) => s.preferCrossChain);
-  if (weakestEffectiveHfWad <= minHfWad) {
-    if (config.rescue.allowCrossChain && prefersCrossChain) {
+  const canCrossChain = snapshots.some((snap) => {
+    if (!snap.isConfiguredAdapter || snap.availableCollateral <= 0n) {
+      return false;
+    }
+    if (weakestPositionChainId !== undefined && snap.chainId !== undefined) {
+      return snap.chainId !== weakestPositionChainId;
+    }
+    if (weakestPositionChainKey && snap.chainKey) {
+      return snap.chainKey.toLowerCase() !== weakestPositionChainKey.toLowerCase();
+    }
+    return false;
+  });
+  return decideRoute(weakestEffectiveHfWad, minHfWad, earlyHfWad, config.rescue.allowCrossChain, canCrossChain);
+};
+var decideRoute = (weakestEffectiveHfWad, minHfWad, earlyHfWad, allowCrossChain, canCrossChain) => {
+  if (weakestEffectiveHfWad <= minHfWad || weakestEffectiveHfWad <= earlyHfWad) {
+    if (allowCrossChain && canCrossChain) {
       return "RESCUE_CROSS_CHAIN";
     }
-    return "RESCUE_SAME_CHAIN";
-  }
-  if (weakestEffectiveHfWad <= earlyHfWad) {
     return "RESCUE_SAME_CHAIN";
   }
   return "NO_ACTION";
@@ -18245,8 +18260,9 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
         positions,
         hfWad,
         availableCollateral,
-        rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
-        preferCrossChain: adapterCfg.preferCrossChain ?? false
+        chainKey: config.chainSelectorName,
+        isConfiguredAdapter: true,
+        rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector
       });
     }
   }
@@ -18421,6 +18437,8 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
   let positionsAnalyzed = 0;
   let weakestDebtHfWad = MAX_HF_WAD;
   let weakestPositionLabel = "";
+  let weakestPositionChainId;
+  let weakestPositionChainKey;
   runtime2.log(`[V1] User=${user} adaptersWithPositions=${snapshots.length}`);
   for (const snap of snapshots) {
     for (const p of snap.positions) {
@@ -18442,6 +18460,8 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
       if (debtUsdWad > 0n && positionHfWad < weakestDebtHfWad) {
         weakestDebtHfWad = positionHfWad;
         weakestPositionLabel = snap.label;
+        weakestPositionChainId = snap.chainId;
+        weakestPositionChainKey = snap.chainKey;
       }
       totalEffectiveCollateralUsdWad += effectiveCollateralUsdWad;
       totalDebtUsdWad += debtUsdWad;
@@ -18454,7 +18474,7 @@ var evaluateChainlinkApiGuard = (runtime2, config, user) => {
   const totalPenaltyBps = maxStalenessPenaltyBps + slopePenaltyBps > MAX_PENALTY_BPS ? MAX_PENALTY_BPS : maxStalenessPenaltyBps + slopePenaltyBps;
   const effectiveHfWad = aggregateHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
   const weakestEffectiveHfWad = weakestDebtHfWad >= MAX_HF_WAD / 2n ? MAX_HF_WAD : weakestDebtHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
-  const decision = evaluateDecision(weakestEffectiveHfWad, config, snapshots);
+  const decision = evaluateDecision(weakestEffectiveHfWad, config, snapshots, weakestPositionChainId, weakestPositionChainKey);
   const aggregateHf = formatHf(aggregateHfWad);
   const effectiveHf = formatHf(effectiveHfWad);
   const weakestHf = formatHf(weakestDebtHfWad);
@@ -18519,6 +18539,12 @@ var asBigInt = (value2) => {
   }
   return;
 };
+var asGasLimit = (value2) => {
+  const parsed = asBigInt(value2);
+  if (parsed === undefined || parsed <= 0n)
+    return;
+  return parsed.toString();
+};
 var asBoolean = (value2) => {
   if (typeof value2 === "boolean")
     return value2;
@@ -18579,19 +18605,35 @@ var flattenPositions = (snapshots) => {
         label: snap.label,
         adapterAddress: snap.adapterAddress,
         availableCollateral: snap.availableCollateral,
+        chainId: snap.chainId,
+        chainKey: snap.chainKey,
+        isConfiguredAdapter: snap.isConfiguredAdapter,
         rescueTargetChainSelector: snap.rescueTargetChainSelector,
-        preferCrossChain: snap.preferCrossChain,
         position
       });
     }
   }
   return flat;
 };
-var inferRescueModeFromPositions = (source, target) => {
-  const srcCollateral = source.position.collateralAsset.toLowerCase();
-  const srcDebt = source.position.debtAsset.toLowerCase();
-  const tgtCollateral = target.position.collateralAsset.toLowerCase();
-  const tgtDebt = target.position.debtAsset.toLowerCase();
+var canonicalAsset = (asset, crossChainAssetMap) => {
+  const key = asset.toLowerCase();
+  const mapped = crossChainAssetMap[key];
+  return (mapped ?? key).toLowerCase();
+};
+var isSameChain = (a, b) => {
+  if (a.chainId !== undefined && b.chainId !== undefined) {
+    return a.chainId === b.chainId;
+  }
+  if (a.chainKey && b.chainKey) {
+    return a.chainKey.toLowerCase() === b.chainKey.toLowerCase();
+  }
+  return true;
+};
+var inferRescueModeFromPositions = (source, target, crossChainAssetMap) => {
+  const srcCollateral = canonicalAsset(source.position.collateralAsset, crossChainAssetMap);
+  const srcDebt = canonicalAsset(source.position.debtAsset, crossChainAssetMap);
+  const tgtCollateral = canonicalAsset(target.position.collateralAsset, crossChainAssetMap);
+  const tgtDebt = canonicalAsset(target.position.debtAsset, crossChainAssetMap);
   if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
     return "TOP_UP";
   }
@@ -18749,10 +18791,11 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
   const sourceAdapterOverride = asAddress(body.sourceAdapter);
   const forceCrossChain = asBoolean(body.forceCrossChain) ?? false;
   const target = debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ?? debtBearing[0];
-  const sourcePool = allFlat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n);
+  const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
+  const sourcePool = allFlat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n && p.isConfiguredAdapter);
   const sourceCandidates = [];
   for (const source2 of sourcePool) {
-    const inferred = inferRescueModeFromPositions(source2, target);
+    const inferred = inferRescueModeFromPositions(source2, target, crossChainAssetMap);
     if (!inferred)
       continue;
     sourceCandidates.push({ source: source2, mode: inferred });
@@ -18764,8 +18807,6 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       rescueModePolicy: "AUTO_INFERRED"
     });
   }
-  const sameChainSources = sourceCandidates.filter((c) => !c.source.preferCrossChain);
-  const crossChainSources = sourceCandidates.filter((c) => c.source.preferCrossChain || !!c.source.rescueTargetChainSelector);
   const chooseHighestCollateral = (list) => {
     let best;
     for (const item of list) {
@@ -18776,17 +18817,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     }
     return best;
   };
-  let useCrossChain = false;
-  let selected = chooseHighestCollateral(sameChainSources);
-  if (!selected || forceCrossChain) {
-    if (config.rescue.allowCrossChain) {
-      const preferred = chooseHighestCollateral(crossChainSources);
-      if (preferred) {
-        selected = preferred;
-        useCrossChain = true;
-      }
-    }
-  }
+  const selected = chooseHighestCollateral(sourceCandidates);
   if (!selected) {
     return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No eligible source after same-chain-first selection", {
       user,
@@ -18795,6 +18826,17 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
     });
   }
   const source = selected.source;
+  let useCrossChain = !isSameChain(source, target);
+  if (forceCrossChain) {
+    useCrossChain = true;
+  }
+  if (useCrossChain && !config.rescue.allowCrossChain) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Cross-chain rescue required by source/target location but disabled by policy", {
+      user,
+      sourceChainKey: source.chainKey ?? "unknown",
+      targetChainKey: target.chainKey ?? "unknown"
+    });
+  }
   const mode = selected.mode;
   const execId = toExecutionId(providedExecutionId, config.strategyId, user, mode, trigger);
   let existingStatus = 0n;
@@ -18970,8 +19012,9 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       rescueMode: mode
     });
   }
+  const reportGasLimit = asGasLimit(body.reportGasLimit) ?? (useCrossChain ? "3500000" : "2500000");
   try {
-    txHash = submitRescuePlanReport(runtime2, chain, reportReceiver, plan);
+    txHash = submitRescuePlanReport(runtime2, chain, reportReceiver, plan, reportGasLimit);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     const manualFallback = errMsg.includes("writeReport") && errMsg.includes("unavailable");

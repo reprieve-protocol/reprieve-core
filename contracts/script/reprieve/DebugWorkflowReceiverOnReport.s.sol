@@ -50,11 +50,23 @@ contract DebugWorkflowReceiverOnReport is Script {
         IWorkflowReceiverDebug receiver = IWorkflowReceiverDebug(c.receiver);
         RescueExecutor executor = RescueExecutor(payable(c.executor));
 
-        ReprieveTypes.RescuePlan memory plan = _buildPlan(c);
-        bytes memory report = abi.encode(plan);
-        bytes memory metadata = c.includeMetadata
-            ? abi.encodePacked(c.metadataWorkflowId, c.metadataWorkflowName, c.metadataWorkflowOwner)
-            : bytes("");
+        bytes memory metadata;
+        bytes memory report;
+        string memory rawCalldataHex = vm.envOr("ONREPORT_CALLDATA", string(""));
+        if (bytes(rawCalldataHex).length > 0) {
+            ReprieveTypes.RescuePlan memory decodedPlan;
+            (metadata, report, decodedPlan) = _decodeOnReportCalldata(rawCalldataHex);
+            c.execId = decodedPlan.execId;
+            c.user = decodedPlan.user;
+            c.mode = decodedPlan.mode;
+            console.log("Using raw onReport calldata from ONREPORT_CALLDATA.");
+        } else {
+            ReprieveTypes.RescuePlan memory plan = _buildPlan(c);
+            report = abi.encode(plan);
+            metadata = c.includeMetadata
+                ? abi.encodePacked(c.metadataWorkflowId, c.metadataWorkflowName, c.metadataWorkflowOwner)
+                : bytes("");
+        }
 
         address originalForwarder = receiver.getForwarderAddress();
         _logContext(c, receiver, executor, originalForwarder);
@@ -83,6 +95,26 @@ contract DebugWorkflowReceiverOnReport is Script {
         if (!ok && c.failOnRevert) {
             revert("DebugWorkflowReceiverOnReport: onReport reverted");
         }
+    }
+
+    function _decodeOnReportCalldata(string memory calldataHex)
+        internal
+        view
+        returns (bytes memory metadata, bytes memory report, ReprieveTypes.RescuePlan memory plan)
+    {
+        bytes memory raw = vm.parseBytes(calldataHex);
+        require(raw.length >= 4, "DebugWorkflowReceiverOnReport: calldata too short");
+
+        bytes4 selector;
+        assembly {
+            selector := mload(add(raw, 32))
+        }
+        bytes4 expected = bytes4(keccak256("onReport(bytes,bytes)"));
+        require(selector == expected, "DebugWorkflowReceiverOnReport: selector mismatch");
+
+        bytes memory argsData = _slice(raw, 4, raw.length - 4);
+        (metadata, report) = abi.decode(argsData, (bytes, bytes));
+        plan = abi.decode(report, (ReprieveTypes.RescuePlan));
     }
 
     function _loadConfig() internal view returns (DebugConfig memory c) {
@@ -281,4 +313,3 @@ contract DebugWorkflowReceiverOnReport is Script {
         return string(buffer);
     }
 }
-

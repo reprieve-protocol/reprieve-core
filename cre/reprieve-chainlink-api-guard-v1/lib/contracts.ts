@@ -435,7 +435,7 @@ export const submitRescuePlanReport = (
   chain: ChainRef,
   workflowReceiverAddress: Address,
   plan: RescuePlanInput,
-  gasLimit = "1200000"
+  gasLimit = "2500000"
 ): Hex => {
   const evmClient = createEvmClient(chain);
   const reportPayload = encodeRescuePlanReport(plan);
@@ -443,6 +443,7 @@ export const submitRescuePlanReport = (
   runtime.log("Submitting rescue report");
   runtime.log(`Report receiver: ${workflowReceiverAddress}`);
   runtime.log(`Execution id: ${plan.execId}`);
+  runtime.log(`Report gas limit: ${gasLimit}`);
 
   const reportResponse = runtime
     .report({

@@ -15,6 +15,8 @@ interface JsonRpcResponse<T> {
 
 @Injectable()
 export class EvmRpcService {
+  private readonly defaultTimeoutMs = 20_000;
+
   private async rpcCall<T>(
     rpcUrl: string,
     method: string,
@@ -27,13 +29,29 @@ export class EvmRpcService {
       params,
     };
 
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if ((error as { name?: string }).name === 'AbortError') {
+        throw new Error(
+          `RPC request timed out (${method}) after ${this.defaultTimeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       throw new Error(`RPC request failed (${method}) with status ${response.status}`);

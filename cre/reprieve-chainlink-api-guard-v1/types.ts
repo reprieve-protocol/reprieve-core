@@ -81,7 +81,6 @@ export interface MonitoredAdapterConfig {
   label: string;
   adapterAddress: string;
   rescueTargetChainSelector?: string;
-  preferCrossChain?: boolean;
 }
 
 export interface MonitoringConfig {
@@ -422,10 +421,6 @@ const parseMonitoredAdapter = (value: unknown, path: string): MonitoredAdapterCo
       value.rescueTargetChainSelector === undefined
         ? undefined
         : requireString(value.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`),
-    preferCrossChain:
-      value.preferCrossChain === undefined
-        ? undefined
-        : requireBoolean(value.preferCrossChain, `${path}.preferCrossChain`),
   };
 };
 

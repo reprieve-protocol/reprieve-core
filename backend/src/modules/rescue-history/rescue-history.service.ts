@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,6 +14,7 @@ import { ChainIndexProgress, IndexerRunResult, RawRpcLog } from './types';
 
 @Injectable()
 export class RescueHistoryService {
+  private readonly logger = new Logger(RescueHistoryService.name);
   private readonly blockWindow: bigint;
   private readonly confirmations: bigint;
 
@@ -39,6 +40,7 @@ export class RescueHistoryService {
 
   async runIndexerOnce(): Promise<IndexerRunResult> {
     const startedAt = new Date();
+    this.logger.log('Indexer run started');
     await this.ensureChainsSeeded();
 
     const chains = await this.chainRepository.find({
@@ -63,7 +65,7 @@ export class RescueHistoryService {
       totalLogsDecoded += chainResult.decodedLogs;
     }
 
-    return {
+    const result = {
       startedAt: startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
       totalChains: chains.length,
@@ -71,6 +73,10 @@ export class RescueHistoryService {
       totalLogsDecoded,
       chains: chainResults,
     };
+    this.logger.log(
+      `Indexer run finished: chains=${result.totalChains} scanned=${result.totalLogsScanned} decoded=${result.totalLogsDecoded}`,
+    );
+    return result;
   }
 
   async runIndexerLoop(): Promise<void> {
@@ -79,7 +85,10 @@ export class RescueHistoryService {
     );
 
     while (true) {
-      await this.runIndexerOnce();
+      const result = await this.runIndexerOnce();
+      this.logger.log(
+        `Indexer loop tick complete. Sleeping ${pollIntervalMs}ms. (${result.totalLogsDecoded} decoded logs)`,
+      );
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
   }
@@ -135,6 +144,10 @@ export class RescueHistoryService {
       const toBlockCandidate = fromBlock + this.blockWindow - 1n;
       const toBlock =
         toBlockCandidate < safeLatestBlock ? toBlockCandidate : safeLatestBlock;
+
+      this.logger.log(
+        `Indexing chain ${chainKey} (${chain.chainId}) from block ${fromBlock} to ${toBlock} (latest: ${latestBlock}, safe: ${safeLatestBlock})`,
+      );
 
       const logs = await this.fetchLogsAdaptive(
         chainConfig.rpcUrl,
@@ -311,7 +324,7 @@ export class RescueHistoryService {
   }
 
   private parseRpcMaxBlocks(errorMessage: string): bigint | null {
-    const match = errorMessage.match(/maximum allowed is\\s+(\\d+)\\s+blocks/i);
+    const match = errorMessage.match(/maximum allowed is\s+(\d+)\s+blocks/i);
     if (!match || !match[1]) {
       return null;
     }
@@ -320,11 +333,23 @@ export class RescueHistoryService {
   }
 
   private async syncUsersFromPositionEvents(userAddresses: string[]): Promise<void> {
+    if (userAddresses.length > 0) {
+      this.logger.log(
+        `PositionUpdated users detected: ${userAddresses.length}. Triggering position sync.`,
+      );
+    }
     for (const userAddress of userAddresses) {
       try {
-        await this.positionsService.syncPositions(userAddress);
-      } catch {
-        // Intentionally ignore sync failures so indexer progress is not blocked by one user sync.
+        const syncResult = await this.positionsService.syncPositions(userAddress);
+        this.logger.log(
+          `Position sync for ${userAddress}: status=${syncResult.status} upserts=${syncResult.snapshotsUpserted} errors=${syncResult.errors.length}`,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Position sync failed for ${userAddress}: ${
+            error instanceof Error ? error.message : 'unknown error'
+          }`,
+        );
       }
     }
   }

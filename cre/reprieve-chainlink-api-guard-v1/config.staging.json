@@ -66,18 +66,15 @@
       {
         "label": "source-aave-adapter",
         "adapterAddress": "0x9a2389d74e6318C67824339e37450437b4De7027",
-        "rescueTargetChainSelector": "10344971235874465080",
-        "preferCrossChain": false
+        "rescueTargetChainSelector": "10344971235874465080"
       },
       {
         "label": "target-compound-adapter",
-        "adapterAddress": "0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa",
-        "preferCrossChain": false
+        "adapterAddress": "0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa"
       },
       {
         "label": "aux-morpho-adapter",
-        "adapterAddress": "0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68",
-        "preferCrossChain": false
+        "adapterAddress": "0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68"
       }
     ],
     "abortOnMissingPrice": true,

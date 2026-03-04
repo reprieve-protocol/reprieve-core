@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { In, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 import { ChainRegistryService } from '../chains/chain-registry.service';
 import {
@@ -309,11 +309,6 @@ export class PositionsService {
   }
 
   private async ensureProtocolAdaptersSeeded(): Promise<void> {
-    const existing = await this.protocolAdapterRepository.count();
-    if (existing > 0) {
-      return;
-    }
-
     const chains = await this.chainRepository.find({ where: { isEnabled: true } });
 
     for (const chain of chains) {
@@ -325,8 +320,10 @@ export class PositionsService {
       const debtAsset = contracts.MockERC20_Debt;
 
       const adapterRows: Array<Partial<ProtocolAdapterEntity>> = [];
+      const activeProtocols: string[] = [];
 
       if (contracts.AaveLikeAdapter && contracts.MockAavePool) {
+        activeProtocols.push('AAVE');
         adapterRows.push({
           chainId: chain.chainId,
           protocol: 'AAVE',
@@ -339,6 +336,7 @@ export class PositionsService {
       }
 
       if (contracts.CompoundLikeAdapter && contracts.MockCompoundComet) {
+        activeProtocols.push('COMPOUND');
         adapterRows.push({
           chainId: chain.chainId,
           protocol: 'COMPOUND',
@@ -351,6 +349,7 @@ export class PositionsService {
       }
 
       if (contracts.MorphoLikeAdapter && contracts.MockMorphoMarket) {
+        activeProtocols.push('MORPHO');
         adapterRows.push({
           chainId: chain.chainId,
           protocol: 'MORPHO',
@@ -370,6 +369,26 @@ export class PositionsService {
           conflictPaths: ['chainId', 'adapterAddress'],
           skipUpdateIfNoValuesChanged: false,
         });
+      }
+
+      // Disable stale adapter rows for protocols we actively manage from config.
+      if (activeProtocols.length > 0) {
+        const expectedAdapters = adapterRows
+          .map((row) => row.adapterAddress)
+          .filter((value): value is string => typeof value === 'string');
+
+        if (expectedAdapters.length > 0) {
+          await this.protocolAdapterRepository.update(
+            {
+              chainId: chain.chainId,
+              protocol: In(activeProtocols),
+              adapterAddress: Not(In(expectedAdapters)),
+            },
+            {
+              isEnabled: false,
+            },
+          );
+        }
       }
     }
   }

@@ -50,8 +50,10 @@ export type AdapterSnapshot = {
   positions: AdapterPosition[];
   hfWad: bigint;
   availableCollateral: bigint;
+  chainId?: number;
+  chainKey?: string;
+  isConfiguredAdapter: boolean;
   rescueTargetChainSelector?: string;
-  preferCrossChain: boolean;
 };
 
 type ApiResponseShape = {
@@ -432,8 +434,10 @@ const buildSnapshotsFromBackend = (
       positions: AdapterPosition[];
       availableCollateral: bigint;
       hfWad: bigint;
+      chainId?: number;
+      chainKey?: string;
+      isConfiguredAdapter: boolean;
       rescueTargetChainSelector?: string;
-      preferCrossChain: boolean;
       debtBearingSeen: boolean;
     }
   >();
@@ -483,8 +487,10 @@ const buildSnapshotsFromBackend = (
         positions: [position],
         availableCollateral: collateralAmount,
         hfWad: debtAmount > 0n ? position.healthFactor : MAX_HF_WAD,
+        chainId,
+        chainKey,
+        isConfiguredAdapter: !!adapterConfig,
         rescueTargetChainSelector: adapterConfig?.rescueTargetChainSelector,
-        preferCrossChain: adapterConfig?.preferCrossChain ?? false,
         debtBearingSeen: debtAmount > 0n,
       });
     } else {
@@ -510,8 +516,10 @@ const buildSnapshotsFromBackend = (
     positions: group.positions,
     hfWad: group.debtBearingSeen ? group.hfWad : MAX_HF_WAD,
     availableCollateral: group.availableCollateral,
+    chainId: group.chainId,
+    chainKey: group.chainKey,
+    isConfiguredAdapter: group.isConfiguredAdapter,
     rescueTargetChainSelector: group.rescueTargetChainSelector,
-    preferCrossChain: group.preferCrossChain,
   }));
 
   const latestAgeSec = toPositiveInt(snapshot.latestAgeSec, Number.MAX_SAFE_INTEGER);
@@ -683,20 +691,48 @@ const canonicalizeAsset = (
 const evaluateDecision = (
   weakestEffectiveHfWad: bigint,
   config: ChainlinkApiGuardConfig,
-  snapshots: AdapterSnapshot[]
+  snapshots: AdapterSnapshot[],
+  weakestPositionChainId?: number,
+  weakestPositionChainKey?: string
 ): RescueDecision => {
   const minHfWad = bpsToWad(config.thresholds.onchainHfMinBps);
   const earlyHfWad = bpsToWad(config.thresholds.earlyWarningHfBps);
-  const prefersCrossChain = snapshots.some((s) => s.preferCrossChain);
+  const canCrossChain = snapshots.some((snap) => {
+    if (!snap.isConfiguredAdapter || snap.availableCollateral <= 0n) {
+      return false;
+    }
+    if (
+      weakestPositionChainId !== undefined &&
+      snap.chainId !== undefined
+    ) {
+      return snap.chainId !== weakestPositionChainId;
+    }
+    if (weakestPositionChainKey && snap.chainKey) {
+      return snap.chainKey.toLowerCase() !== weakestPositionChainKey.toLowerCase();
+    }
+    return false;
+  });
 
-  if (weakestEffectiveHfWad <= minHfWad) {
-    if (config.rescue.allowCrossChain && prefersCrossChain) {
+  return decideRoute(
+    weakestEffectiveHfWad,
+    minHfWad,
+    earlyHfWad,
+    config.rescue.allowCrossChain,
+    canCrossChain
+  );
+};
+
+const decideRoute = (
+  weakestEffectiveHfWad: bigint,
+  minHfWad: bigint,
+  earlyHfWad: bigint,
+  allowCrossChain: boolean,
+  canCrossChain: boolean
+): RescueDecision => {
+  if (weakestEffectiveHfWad <= minHfWad || weakestEffectiveHfWad <= earlyHfWad) {
+    if (allowCrossChain && canCrossChain) {
       return "RESCUE_CROSS_CHAIN";
     }
-    return "RESCUE_SAME_CHAIN";
-  }
-
-  if (weakestEffectiveHfWad <= earlyHfWad) {
     return "RESCUE_SAME_CHAIN";
   }
 
@@ -798,8 +834,9 @@ export const evaluateChainlinkApiGuard = (
         positions,
         hfWad,
         availableCollateral,
+        chainKey: config.chainSelectorName,
+        isConfiguredAdapter: true,
         rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
-        preferCrossChain: adapterCfg.preferCrossChain ?? false,
       });
     }
   }
@@ -1004,6 +1041,8 @@ export const evaluateChainlinkApiGuard = (
   let positionsAnalyzed = 0;
   let weakestDebtHfWad = MAX_HF_WAD;
   let weakestPositionLabel = "";
+  let weakestPositionChainId: number | undefined;
+  let weakestPositionChainKey: string | undefined;
   runtime.log(`[V1] User=${user} adaptersWithPositions=${snapshots.length}`);
 
   for (const snap of snapshots) {
@@ -1034,6 +1073,8 @@ export const evaluateChainlinkApiGuard = (
       if (debtUsdWad > 0n && positionHfWad < weakestDebtHfWad) {
         weakestDebtHfWad = positionHfWad;
         weakestPositionLabel = snap.label;
+        weakestPositionChainId = snap.chainId;
+        weakestPositionChainKey = snap.chainKey;
       }
 
       totalEffectiveCollateralUsdWad += effectiveCollateralUsdWad;
@@ -1078,7 +1119,13 @@ export const evaluateChainlinkApiGuard = (
       ? MAX_HF_WAD
       : (weakestDebtHfWad * (BPS_DENOM - totalPenaltyBps)) / BPS_DENOM;
 
-  const decision = evaluateDecision(weakestEffectiveHfWad, config, snapshots);
+  const decision = evaluateDecision(
+    weakestEffectiveHfWad,
+    config,
+    snapshots,
+    weakestPositionChainId,
+    weakestPositionChainKey
+  );
   const aggregateHf = formatHf(aggregateHfWad);
   const effectiveHf = formatHf(effectiveHfWad);
   const weakestHf = formatHf(weakestDebtHfWad);
@@ -1128,4 +1175,5 @@ export const __testables = {
   verifyReportIntegrity,
   bpsToWad,
   computeShockBps,
+  decideRoute,
 };

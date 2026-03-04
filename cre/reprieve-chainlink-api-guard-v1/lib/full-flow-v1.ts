@@ -30,8 +30,10 @@ type FlatPosition = {
   label: string;
   adapterAddress: Address;
   availableCollateral: bigint;
+  chainId?: number;
+  chainKey?: string;
+  isConfiguredAdapter: boolean;
   rescueTargetChainSelector?: string;
-  preferCrossChain: boolean;
   position: AdapterSnapshot["positions"][number];
 };
 
@@ -56,6 +58,12 @@ const asBigInt = (value: unknown): bigint | undefined => {
     return BigInt(value);
   }
   return undefined;
+};
+
+const asGasLimit = (value: unknown): string | undefined => {
+  const parsed = asBigInt(value);
+  if (parsed === undefined || parsed <= 0n) return undefined;
+  return parsed.toString();
 };
 
 const asBoolean = (value: unknown): boolean | undefined => {
@@ -118,8 +126,10 @@ const flattenPositions = (snapshots: AdapterSnapshot[]): FlatPosition[] => {
         label: snap.label,
         adapterAddress: snap.adapterAddress,
         availableCollateral: snap.availableCollateral,
+        chainId: snap.chainId,
+        chainKey: snap.chainKey,
+        isConfiguredAdapter: snap.isConfiguredAdapter,
         rescueTargetChainSelector: snap.rescueTargetChainSelector,
-        preferCrossChain: snap.preferCrossChain,
         position,
       });
     }
@@ -127,14 +137,40 @@ const flattenPositions = (snapshots: AdapterSnapshot[]): FlatPosition[] => {
   return flat;
 };
 
+const canonicalAsset = (
+  asset: Address,
+  crossChainAssetMap: Record<string, string>
+): string => {
+  const key = asset.toLowerCase();
+  const mapped = crossChainAssetMap[key];
+  return (mapped ?? key).toLowerCase();
+};
+
+const isSameChain = (a: FlatPosition, b: FlatPosition): boolean => {
+  if (a.chainId !== undefined && b.chainId !== undefined) {
+    return a.chainId === b.chainId;
+  }
+  if (a.chainKey && b.chainKey) {
+    return a.chainKey.toLowerCase() === b.chainKey.toLowerCase();
+  }
+  return true;
+};
+
 const inferRescueModeFromPositions = (
   source: FlatPosition,
-  target: FlatPosition
+  target: FlatPosition,
+  crossChainAssetMap: Record<string, string>
 ): RescueModeLabel | undefined => {
-  const srcCollateral = source.position.collateralAsset.toLowerCase();
-  const srcDebt = source.position.debtAsset.toLowerCase();
-  const tgtCollateral = target.position.collateralAsset.toLowerCase();
-  const tgtDebt = target.position.debtAsset.toLowerCase();
+  const srcCollateral = canonicalAsset(
+    source.position.collateralAsset as Address,
+    crossChainAssetMap
+  );
+  const srcDebt = canonicalAsset(source.position.debtAsset as Address, crossChainAssetMap);
+  const tgtCollateral = canonicalAsset(
+    target.position.collateralAsset as Address,
+    crossChainAssetMap
+  );
+  const tgtDebt = canonicalAsset(target.position.debtAsset as Address, crossChainAssetMap);
 
   if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
     return "TOP_UP";
@@ -355,12 +391,16 @@ export const runChainlinkApiGuardFlow = (
   const target =
     debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ??
     debtBearing[0];
+  const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
   const sourcePool = allFlat.filter(
-    (p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n
+    (p) =>
+      p.adapterAddress !== target.adapterAddress &&
+      p.availableCollateral > 0n &&
+      p.isConfiguredAdapter
   );
   const sourceCandidates: SourceCandidate[] = [];
   for (const source of sourcePool) {
-    const inferred = inferRescueModeFromPositions(source, target);
+    const inferred = inferRescueModeFromPositions(source, target, crossChainAssetMap);
     if (!inferred) continue;
     sourceCandidates.push({ source, mode: inferred });
   }
@@ -373,13 +413,6 @@ export const runChainlinkApiGuardFlow = (
     });
   }
 
-  const sameChainSources = sourceCandidates.filter(
-    (c) => !c.source.preferCrossChain
-  );
-  const crossChainSources = sourceCandidates.filter(
-    (c) => c.source.preferCrossChain || !!c.source.rescueTargetChainSelector
-  );
-
   const chooseHighestCollateral = (list: SourceCandidate[]): SourceCandidate | undefined => {
     let best: SourceCandidate | undefined;
     for (const item of list) {
@@ -389,17 +422,7 @@ export const runChainlinkApiGuardFlow = (
     return best;
   };
 
-  let useCrossChain = false;
-  let selected = chooseHighestCollateral(sameChainSources);
-  if (!selected || forceCrossChain) {
-    if (config.rescue.allowCrossChain) {
-      const preferred = chooseHighestCollateral(crossChainSources);
-      if (preferred) {
-        selected = preferred;
-        useCrossChain = true;
-      }
-    }
-  }
+  const selected = chooseHighestCollateral(sourceCandidates);
 
   if (!selected) {
     return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No eligible source after same-chain-first selection", {
@@ -410,6 +433,25 @@ export const runChainlinkApiGuardFlow = (
   }
 
   const source = selected.source;
+  let useCrossChain = !isSameChain(source, target);
+  if (forceCrossChain) {
+    useCrossChain = true;
+  }
+  if (useCrossChain && !config.rescue.allowCrossChain) {
+    return buildNoAction(
+      config.strategyId,
+      trigger,
+      baseExecId,
+      "ABORT",
+      "Cross-chain rescue required by source/target location but disabled by policy",
+      {
+        user,
+        sourceChainKey: source.chainKey ?? "unknown",
+        targetChainKey: target.chainKey ?? "unknown",
+      }
+    );
+  }
+
   const mode = selected.mode;
   const execId = toExecutionId(providedExecutionId, config.strategyId, user, mode, trigger);
 
@@ -631,12 +673,17 @@ export const runChainlinkApiGuardFlow = (
     });
   }
 
+  const reportGasLimit =
+    asGasLimit(body.reportGasLimit) ??
+    (useCrossChain ? "3500000" : "2500000");
+
   try {
     txHash = submitRescuePlanReport(
       runtime,
       chain,
       reportReceiver,
-      plan
+      plan,
+      reportGasLimit
     );
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
@@ -831,4 +878,9 @@ export const reconcileChainlinkApiGuardLog = (
     `Observed ${decoded.eventName}`,
     {}
   );
+};
+
+export const __testables = {
+  inferRescueModeFromPositions,
+  isSameChain,
 };

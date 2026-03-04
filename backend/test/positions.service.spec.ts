@@ -41,6 +41,7 @@ describe('PositionsService', () => {
   const protocolAdapterRepository = {
     count: jest.fn(),
     upsert: jest.fn(),
+    update: jest.fn(),
     find: jest.fn(),
   };
 

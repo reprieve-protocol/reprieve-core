@@ -31,7 +31,7 @@ Commands:
   reprieve-deploy <ethereum-sepolia|base-sepolia>
   workflow-receiver-deploy <ethereum-sepolia|base-sepolia>
   workflow-receiver-wire <ethereum-sepolia|base-sepolia>
-  workflow-receiver-debug-onreport <ethereum-sepolia|base-sepolia>
+  workflow-receiver-debug-onreport <ethereum-sepolia|base-sepolia> <calldata-hex>
   decode-onreport <calldata-hex>
   full-deploy <ethereum-sepolia|base-sepolia>
   ccip-wire-source <ethereum-sepolia|base-sepolia>
@@ -56,8 +56,8 @@ Notes:
   - workflow receiver wire:
     - `WF_EXPECTED_AUTHOR=0x... ./scripts/ops.sh workflow-receiver-wire ethereum-sepolia`
   - workflow receiver debug:
-    - `./scripts/ops.sh workflow-receiver-debug-onreport ethereum-sepolia`
-    - Optional: `BROADCAST_DEBUG=true FAIL_ON_REVERT=true ./scripts/ops.sh workflow-receiver-debug-onreport ethereum-sepolia`
+    - `./scripts/ops.sh workflow-receiver-debug-onreport ethereum-sepolia 0x805f2132...`
+    - Optional: `BROADCAST_DEBUG=true FAIL_ON_REVERT=true ./scripts/ops.sh workflow-receiver-debug-onreport ethereum-sepolia 0x805f2132...`
   - decode onReport calldata:
     - `./scripts/ops.sh decode-onreport 0x805f2132...`
 EOF
@@ -778,6 +778,13 @@ case "$cmd" in
     ;;
   workflow-receiver-debug-onreport)
     set_chain "$chain"
+    calldata_hex="${arg3:-}"
+    if [ -z "$calldata_hex" ]; then
+      echo "workflow-receiver-debug-onreport requires <chain> <calldata-hex>."
+      usage
+      exit 1
+    fi
+    export ONREPORT_CALLDATA="$calldata_hex"
     load_lending_addresses_from_config
     load_reprieve_addresses_from_artifact
     load_workflow_receiver_from_artifact
@@ -809,6 +816,7 @@ case "$cmd" in
     echo "  Executor : $RESCUE_EXECUTOR"
     echo "  User     : $RESCUE_USER"
     echo "  Mode     : $RESCUE_MODE"
+    echo "  Calldata : ${ONREPORT_CALLDATA}"
     echo "  Source   : $SOURCE_ADAPTER"
     echo "  Target   : $TARGET_ADAPTER"
     echo "  Temp fwd : $TEMP_SET_FORWARDER (restore=$RESTORE_FORWARDER)"
