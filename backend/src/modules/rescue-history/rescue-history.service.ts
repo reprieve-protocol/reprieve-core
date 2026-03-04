@@ -93,6 +93,64 @@ export class RescueHistoryService {
     }
   }
 
+  async resetIndexedRescueData(options?: {
+    resetChainCursor?: boolean;
+    clearRelayJobs?: boolean;
+  }): Promise<{
+    before: { rescueEvents: number; rescueExecutions: number; relayJobs: number };
+    after: { rescueEvents: number; rescueExecutions: number; relayJobs: number };
+    chainCursorsReset: boolean;
+    relayJobsCleared: boolean;
+  }> {
+    const resetChainCursor = options?.resetChainCursor ?? true;
+    const clearRelayJobs = options?.clearRelayJobs ?? false;
+
+    const beforeCounts = await this.rescueEventRepository.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM rescue_events) AS rescue_events,
+        (SELECT COUNT(*)::int FROM rescue_executions) AS rescue_executions,
+        (SELECT COUNT(*)::int FROM relay_jobs) AS relay_jobs`,
+    );
+    const before = {
+      rescueEvents: Number(beforeCounts?.[0]?.rescue_events ?? 0),
+      rescueExecutions: Number(beforeCounts?.[0]?.rescue_executions ?? 0),
+      relayJobs: Number(beforeCounts?.[0]?.relay_jobs ?? 0),
+    };
+
+    await this.rescueEventRepository.query('DELETE FROM rescue_events');
+    await this.rescueEventRepository.query('DELETE FROM rescue_executions');
+    if (clearRelayJobs) {
+      await this.rescueEventRepository.query('DELETE FROM relay_jobs');
+    }
+
+    if (resetChainCursor) {
+      await this.chainRepository
+        .createQueryBuilder()
+        .update(ChainEntity)
+        .set({ indexerCursorBlock: null, updatedAt: () => 'NOW()' as never })
+        .execute();
+    }
+
+    const afterCounts = await this.rescueEventRepository.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM rescue_events) AS rescue_events,
+        (SELECT COUNT(*)::int FROM rescue_executions) AS rescue_executions,
+        (SELECT COUNT(*)::int FROM relay_jobs) AS relay_jobs`,
+    );
+    const after = {
+      rescueEvents: Number(afterCounts?.[0]?.rescue_events ?? 0),
+      rescueExecutions: Number(afterCounts?.[0]?.rescue_executions ?? 0),
+      relayJobs: Number(afterCounts?.[0]?.relay_jobs ?? 0),
+    };
+
+    return {
+      before,
+      after,
+      chainCursorsReset: resetChainCursor,
+      relayJobsCleared: clearRelayJobs,
+    };
+  }
+
   private async indexChain(chain: ChainEntity): Promise<ChainIndexProgress> {
     const chainKey = this.resolveChainKeyFromChainId(chain.chainId);
 

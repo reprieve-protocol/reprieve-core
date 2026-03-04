@@ -91,6 +91,7 @@ contract CrossChainIntegrationTest is Test {
         
         // Deploy source lending protocol (AAVE-like)
         sourceAavePool = new MockAavePool(address(collateral), address(debt), address(oracle), owner);
+        sourceAavePool.engine().setAuthorizedOperator(address(sourceAavePool), true);
         // MockAToken aToken = sourceAavePool.aToken(); // Unused variable
         
         sourceAaveAdapter = new AaveLikeAdapter(
@@ -175,10 +176,7 @@ contract CrossChainIntegrationTest is Test {
         vm.prank(minter);
         linkToken.mint(user, 10 ether);
         
-        // Fund sourceExecutor with collateral and ETH for cross-chain rescue
-        // (In production, collateral would come from withdrawing user's position)
-        vm.prank(minter);
-        collateral.mint(address(sourceExecutor), 100 ether);
+        // Fund sourceExecutor with ETH for CCIP fees.
         vm.deal(address(sourceExecutor), 10 ether); // Fund with ETH for CCIP fees
         
         // Fund Compound engine with debt tokens for borrowing
@@ -200,6 +198,7 @@ contract CrossChainIntegrationTest is Test {
         vm.startPrank(user);
         collateral.approve(address(sourceAavePool), type(uint256).max);
         sourceAavePool.supply(address(collateral), 10 ether, user, 0);
+        sourceAavePool.aToken().approve(address(sourceAaveAdapter), type(uint256).max);
         vm.stopPrank();
         
         // User supplies collateral and borrows debt from destination Compound
@@ -304,12 +303,51 @@ contract CrossChainIntegrationTest is Test {
         // Check rescue status on source executor (should be Completed after successful cross-chain)
         assertEq(uint256(sourceExecutor.getRescueStatus(EXEC_ID)), uint256(ReprieveTypes.RescueStatus.Completed));
     }
+
+    function test_CrossChainRescue_DoesNotUseExecutorFloat() public {
+        // Seed executor directly to ensure cross-chain path cannot bypass source withdrawal.
+        vm.prank(minter);
+        collateral.mint(address(sourceExecutor), 10 ether);
+        uint256 executorBalanceBefore = collateral.balanceOf(address(sourceExecutor));
+
+        // User intentionally has no source Aave position here.
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(sourceAaveAdapter),
+            targetAdapter: address(destCompoundAdapter),
+            collateralAsset: address(collateral),
+            debtAsset: address(debt),
+            collateralAmount: 1 ether,
+            debtAmount: 0,
+            isCrossChain: true,
+            targetChain: DEST_CHAIN_SELECTOR
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: EXEC_ID,
+            user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        bool success = sourceExecutor.executeRescue(plan);
+
+        assertFalse(success, "Execution should fail without source position withdrawal");
+        assertEq(sourceExecutor.ccipMessageIds(EXEC_ID), bytes32(0), "No CCIP message should be sent");
+        assertEq(collateral.balanceOf(address(sourceExecutor)), executorBalanceBefore, "Executor float must remain untouched");
+        assertEq(uint256(sourceExecutor.getRescueStatus(EXEC_ID)), uint256(ReprieveTypes.RescueStatus.Failed));
+    }
     
     function test_CrossChainRescue_WithFailureRetry() public {
         // Setup similar position
         vm.startPrank(user);
         collateral.approve(address(sourceAavePool), type(uint256).max);
         sourceAavePool.supply(address(collateral), 10 ether, user, 0);
+        sourceAavePool.aToken().approve(address(sourceAaveAdapter), type(uint256).max);
         vm.stopPrank();
         
         // Build rescue step
@@ -381,6 +419,7 @@ contract CrossChainIntegrationTest is Test {
         vm.startPrank(user);
         collateral.approve(address(sourceAavePool), type(uint256).max);
         sourceAavePool.supply(address(collateral), 10 ether, user, 0);
+        sourceAavePool.aToken().approve(address(sourceAaveAdapter), type(uint256).max);
         vm.stopPrank();
 
         ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
@@ -437,6 +476,7 @@ contract CrossChainIntegrationTest is Test {
         vm.startPrank(user);
         collateral.approve(address(sourceAavePool), type(uint256).max);
         sourceAavePool.supply(address(collateral), 10 ether, user, 0);
+        sourceAavePool.aToken().approve(address(sourceAaveAdapter), type(uint256).max);
         collateral.approve(address(destCompoundMarket), type(uint256).max);
         destCompoundMarket.mint(address(collateral), 8 ether);
         destCompoundMarket.borrow(address(debt), 5000e6);
@@ -494,6 +534,7 @@ contract CrossChainIntegrationTest is Test {
         vm.startPrank(user);
         collateral.approve(address(sourceAavePool), type(uint256).max);
         sourceAavePool.supply(address(collateral), 10 ether, user, 0);
+        sourceAavePool.aToken().approve(address(sourceAaveAdapter), type(uint256).max);
         vm.stopPrank();
         
         // Build rescue step

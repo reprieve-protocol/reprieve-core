@@ -597,6 +597,45 @@ contract RescueExecutorTest is Test {
         // Verify rescue was attempted (status set)
         assertFalse(executor.rescueInProgress(user)); // Lock released after
     }
+
+    function test_ExecuteRescue_SameChain_DoesNotUseExecutorFloat() public {
+        // Seed executor directly to ensure same-chain path cannot bypass source withdrawal.
+        vm.prank(minter);
+        collateral.mint(address(executor), 10 ether);
+        uint256 executorBalanceBefore = collateral.balanceOf(address(executor));
+        uint256 targetCollateralBefore = compoundMarket.getUserPosition(user).collateral;
+
+        // User intentionally has no source Aave position.
+        ReprieveTypes.RescueStep[] memory steps = new ReprieveTypes.RescueStep[](1);
+        steps[0] = ReprieveTypes.RescueStep({
+            stepIndex: 0,
+            sourceAdapter: address(aaveAdapter),
+            targetAdapter: address(compoundAdapter),
+            collateralAsset: address(collateral),
+            debtAsset: address(debt),
+            collateralAmount: 1 ether,
+            debtAmount: 0,
+            isCrossChain: false,
+            targetChain: 0
+        });
+
+        ReprieveTypes.RescuePlan memory plan = ReprieveTypes.RescuePlan({
+            execId: keccak256("same-chain-no-float"),
+            user: user,
+            mode: ReprieveTypes.RescueMode.TOP_UP,
+            steps: steps,
+            deadline: block.timestamp + 1 hours,
+            maxFee: 1 ether
+        });
+
+        vm.prank(workflow);
+        bool success = executor.executeRescue(plan);
+
+        assertFalse(success, "Execution should fail without source withdrawal");
+        assertEq(collateral.balanceOf(address(executor)), executorBalanceBefore, "Executor float must remain untouched");
+        assertEq(compoundMarket.getUserPosition(user).collateral, targetCollateralBefore, "Target collateral should not change");
+        assertEq(uint256(executor.getRescueStatus(plan.execId)), uint256(ReprieveTypes.RescueStatus.Failed));
+    }
     
     // ============ CONSTANTS TESTS ============
     

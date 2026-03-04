@@ -46,7 +46,6 @@ contract RunCrossChainRescue is Script {
         uint256 crossTransferAmount = vm.envOr("CROSS_TRANSFER_COLLATERAL", uint256(4 ether));
         uint256 crossTopUpAmount = vm.envOr("CROSS_TOPUP_COLLATERAL", crossTransferAmount);
         uint256 crossDebtAmount = vm.envOr("CROSS_REPAY_DEBT", crossTransferAmount);
-        uint256 executorCollateralFloat = vm.envOr("EXECUTOR_COLLATERAL_FLOAT", uint256(15 ether));
         uint256 nativeFeeBuffer = vm.envOr("EXECUTOR_NATIVE_FEE_BUFFER", uint256(0.05 ether));
         bool setupTargetDebt = vm.envOr("SETUP_TARGET_DEBT", true);
         bool deliverMock = vm.envOr("DELIVER_MOCK", false);
@@ -100,7 +99,6 @@ contract RunCrossChainRescue is Script {
         // 2) Setup balances/positions
         vm.startBroadcast(minterPk);
         collateral.mint(user, userCollateralMint);
-        collateral.mint(sourceExecutorAddr, executorCollateralFloat);
         if (setupTargetDebt && destCompoundMarketAddr != address(0)) {
             debt.mint(address(destCompoundMarket.engine()), 100_000e6);
         }

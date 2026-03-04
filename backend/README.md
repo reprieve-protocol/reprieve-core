@@ -18,9 +18,17 @@
 - `npm run test`
 - `npm run migration:run`
 - `npm run lint`
+- `npm run indexer:reset` (clears rescue events/executions and resets chain cursors)
+- `npm run indexer:once`
+- `npm run indexer:start`
+- `npm run relay:once`
+- `npm run relay:start`
 - `docker compose up -d`
 - `docker compose down`
 
 ## Notes
 - `ETHEREUM_SEPOLIA_RPC_URL` and `BASE_SEPOLIA_RPC_URL` are required at startup.
 - `CONTRACTS_CONFIG_DIR` defaults to `../contracts/config`.
+- Relay worker submits EVM tx directly (no shell-out). Set one of:
+  - `RELAY_SIGNER_PRIVATE_KEY`
+  - chain-specific `ETHEREUM_SEPOLIA_PRIVATE_KEY` / `BASE_SEPOLIA_PRIVATE_KEY`

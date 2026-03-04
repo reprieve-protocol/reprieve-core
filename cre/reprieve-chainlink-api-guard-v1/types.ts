@@ -80,6 +80,8 @@ export interface CrossChainConfig {
 export interface MonitoredAdapterConfig {
   label: string;
   adapterAddress: string;
+  chainSelectorName?: string;
+  isTestnet?: boolean;
   rescueTargetChainSelector?: string;
 }
 
@@ -417,6 +419,14 @@ const parseMonitoredAdapter = (value: unknown, path: string): MonitoredAdapterCo
   return {
     label: requireString(value.label, `${path}.label`),
     adapterAddress: requireString(value.adapterAddress, `${path}.adapterAddress`),
+    chainSelectorName:
+      value.chainSelectorName === undefined
+        ? undefined
+        : requireString(value.chainSelectorName, `${path}.chainSelectorName`),
+    isTestnet:
+      value.isTestnet === undefined
+        ? undefined
+        : requireBoolean(value.isTestnet, `${path}.isTestnet`),
     rescueTargetChainSelector:
       value.rescueTargetChainSelector === undefined
         ? undefined

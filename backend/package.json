@@ -13,7 +13,10 @@
     "backend:sync": "ts-node src/modules/positions/cli-sync.ts",
     "indexer:start": "ts-node src/modules/rescue-history/indexer-start.ts",
     "indexer:once": "ts-node src/modules/rescue-history/indexer-once.ts",
+    "indexer:reset": "ts-node src/modules/rescue-history/indexer-reset.ts",
     "projection:rebuild": "ts-node src/modules/rescue-history/projection-rebuild.ts",
+    "relay:start": "ts-node src/modules/relay/relay-start.ts",
+    "relay:once": "ts-node src/modules/relay/relay-once.ts",
     "migration:run": "typeorm-ts-node-commonjs -d src/modules/persistence/data-source.ts migration:run",
     "migration:revert": "typeorm-ts-node-commonjs -d src/modules/persistence/data-source.ts migration:revert"
   },
@@ -27,6 +30,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dotenv": "^16.4.7",
+    "ethers": "^6.15.0",
     "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

@@ -392,11 +392,13 @@ export const runChainlinkApiGuardFlow = (
     debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ??
     debtBearing[0];
   const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
+  const executionChainKey = config.chainSelectorName.toLowerCase();
   const sourcePool = allFlat.filter(
     (p) =>
       p.adapterAddress !== target.adapterAddress &&
       p.availableCollateral > 0n &&
-      p.isConfiguredAdapter
+      p.isConfiguredAdapter &&
+      (p.chainKey ? p.chainKey.toLowerCase() === executionChainKey : true)
   );
   const sourceCandidates: SourceCandidate[] = [];
   for (const source of sourcePool) {
@@ -406,10 +408,11 @@ export const runChainlinkApiGuardFlow = (
   }
 
   if (sourceCandidates.length === 0) {
-    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No compatible rescue source with withdrawable collateral", {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No compatible rescue source with withdrawable collateral on execution chain", {
       user,
       runMode,
       rescueModePolicy: "AUTO_INFERRED",
+      executionChain: config.chainSelectorName,
     });
   }
 
@@ -588,6 +591,7 @@ export const runChainlinkApiGuardFlow = (
       reserveSafeSource: reserveSafeSource.toString(),
       sourceHfSafeCap: sourceHfSafeCap.toString(),
       sourceFloorHfBps,
+      ...guard.metadata,
     });
   }
 
@@ -607,6 +611,7 @@ export const runChainlinkApiGuardFlow = (
           actionAmount: actionAmount.toString(),
           actionUsd: wadToFixed(actionUsdWad, 6),
           minActionUsd,
+          ...guard.metadata,
         }
       );
     }

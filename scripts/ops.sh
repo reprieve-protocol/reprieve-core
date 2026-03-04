@@ -22,6 +22,10 @@ Commands:
   borrow-asset <ethereum-sepolia|base-sepolia> <symbol> <AAVE|COMPOUND|MORPHO> <amount>
   repay-asset <ethereum-sepolia|base-sepolia> <symbol> <AAVE|COMPOUND|MORPHO> <amount>
   mock-router-deploy <ethereum-sepolia|base-sepolia>
+  mock-fee-set <ethereum-sepolia|base-sepolia> <ethereum-sepolia|base-sepolia|dest-selector> <fee-eth>
+  ccip-mapping-check <ethereum-sepolia|base-sepolia> <ethereum-sepolia|base-sepolia|dest-selector> <source-symbol|source-token-address>
+  bridge-role-check <ethereum-sepolia|base-sepolia> <token-address> <account-address>
+  bridge-role-set <ethereum-sepolia|base-sepolia> <token-address> <account-address> <minter|burner|both> [true|false]
   mock-relay <source-chain> <destination-chain> [message-id|latest]
   cross-chain-rescue-setup-source <ethereum-sepolia|base-sepolia>
   cross-chain-rescue-setup-destination <ethereum-sepolia|base-sepolia>
@@ -51,6 +55,17 @@ Notes:
     - `./scripts/ops.sh approve-aave-receipt ethereum-sepolia`
     - `./scripts/ops.sh deposit-collateral ethereum-sepolia WETH AAVE 1.5`
     - `./scripts/ops.sh borrow-asset ethereum-sepolia USDC COMPOUND 2500`
+  - mock fee example:
+    - `./scripts/ops.sh mock-fee-set ethereum-sepolia base-sepolia 0`
+    - `./scripts/ops.sh mock-fee-set base-sepolia 16015286601757825753 0.005`
+  - mapping check example:
+    - `./scripts/ops.sh ccip-mapping-check ethereum-sepolia base-sepolia WETH`
+    - `./scripts/ops.sh ccip-mapping-check ethereum-sepolia 10344971235874465080 0x4c87EA388AdE37f6A556146B4fF6ff2A12192968`
+  - bridge role examples:
+    - `./scripts/ops.sh bridge-role-check base-sepolia 0x7570... 0xAE39...`
+    - `./scripts/ops.sh bridge-role-set base-sepolia 0x7570... 0xAE39... minter true`
+    - `./scripts/ops.sh bridge-role-set base-sepolia 0x7570... 0xAE39... burner true`
+    - `./scripts/ops.sh bridge-role-set base-sepolia 0x7570... 0xAE39... both true`
   - workflow receiver deploy:
     - `CRE_FORWARDER=0x... ./scripts/ops.sh workflow-receiver-deploy ethereum-sepolia`
   - workflow receiver wire:
@@ -310,6 +325,26 @@ selector_for_chain_id() {
     11155111) echo "16015286601757825753" ;; # Ethereum Sepolia selector
     84532) echo "10344971235874465080" ;;    # Base Sepolia selector
     *) echo "" ;;
+  esac
+}
+
+resolve_selector() {
+  local input="$1"
+  if [[ "$input" =~ ^[0-9]+$ ]]; then
+    echo "$input"
+    return
+  fi
+
+  case "$input" in
+    ethereum-sepolia)
+      echo "16015286601757825753"
+      ;;
+    base-sepolia)
+      echo "10344971235874465080"
+      ;;
+    *)
+      echo ""
+      ;;
   esac
 }
 
@@ -624,6 +659,157 @@ case "$cmd" in
     fi
     export SOURCE_CHAIN_SELECTOR="${SOURCE_CHAIN_SELECTOR:-$(selector_for_chain_id "$CHAIN_ID")}"
     run_forge_script "script/reprieve/DeployMockCCIPRouter.s.sol:DeployMockCCIPRouter"
+    ;;
+  mock-fee-set)
+    set_chain "$chain"
+    dest_input="${arg3:-}"
+    fee_human="${arg4:-}"
+    if [ -z "$dest_input" ] || [ -z "$fee_human" ]; then
+      echo "mock-fee-set requires <chain> <dest-chain|dest-selector> <fee-eth>."
+      usage
+      exit 1
+    fi
+    if [ -z "${CCIP_ROUTER:-}" ]; then
+      echo "Missing CCIP_ROUTER for $CHAIN_NAME (set chain router env first)."
+      exit 1
+    fi
+
+    dest_selector="$(resolve_selector "$dest_input")"
+    if [ -z "$dest_selector" ]; then
+      echo "Unsupported destination '$dest_input'. Use base-sepolia, ethereum-sepolia, or numeric selector."
+      exit 1
+    fi
+
+    fee_wei="$(to_token_units "$fee_human" 18)"
+    if [ -z "$fee_wei" ]; then
+      echo "Invalid fee '$fee_human'."
+      exit 1
+    fi
+
+    export DEST_CHAIN_SELECTOR="$dest_selector"
+    export MOCK_FEE_WEI="$fee_wei"
+
+    echo "Setting mock CCIP fee on $CHAIN_NAME"
+    echo "  Router           : $CCIP_ROUTER"
+    echo "  Destination input: $dest_input"
+    echo "  Destination sel  : $DEST_CHAIN_SELECTOR"
+    echo "  Fee (ETH)        : $fee_human"
+    echo "  Fee (wei)        : $MOCK_FEE_WEI"
+    run_forge_script "script/reprieve/SetMockCcipFee.s.sol:SetMockCcipFee"
+    ;;
+  ccip-mapping-check)
+    set_chain "$chain"
+    load_lending_addresses_from_config
+
+    dest_input="${arg3:-}"
+    source_token_input="${arg4:-}"
+    if [ -z "$dest_input" ] || [ -z "$source_token_input" ]; then
+      echo "ccip-mapping-check requires <source-chain> <dest-chain|selector> <source-symbol|source-token-address>."
+      usage
+      exit 1
+    fi
+
+    dest_selector="$(resolve_selector "$dest_input")"
+    if [ -z "$dest_selector" ]; then
+      echo "Unsupported destination selector input '$dest_input'. Use chain name or numeric selector."
+      exit 1
+    fi
+
+    source_resolved="$(resolve_asset_by_symbol "$source_token_input")"
+    source_symbol=""
+    source_token_addr=""
+    if [ -n "$source_resolved" ]; then
+      source_symbol="${source_resolved%%|*}"
+      source_token_addr="${source_resolved#*|}"
+    elif [[ "$source_token_input" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+      source_symbol="RAW"
+      source_token_addr="$source_token_input"
+    else
+      echo "Unsupported source token '$source_token_input' for $CHAIN_NAME."
+      echo "Pass symbol from asset map (e.g. WETH/USDC) or a token address."
+      print_asset_map
+      exit 1
+    fi
+
+    export SOURCE_ROUTER="${SOURCE_ROUTER:-$CCIP_ROUTER}"
+    export DEST_CHAIN_SELECTOR="$dest_selector"
+    export SOURCE_TOKEN="$source_token_addr"
+    export SOURCE_TOKEN_SYMBOL="$source_symbol"
+
+    if [ -z "${SOURCE_ROUTER:-}" ]; then
+      echo "Missing SOURCE_ROUTER/CCIP_ROUTER for $CHAIN_NAME."
+      exit 1
+    fi
+
+    echo "Checking CCIP token mapping on $CHAIN_NAME"
+    echo "  Source router     : $SOURCE_ROUTER"
+    echo "  Destination input : $dest_input"
+    echo "  Destination sel   : $DEST_CHAIN_SELECTOR"
+    echo "  Source token input: $source_token_input"
+    echo "  Source token addr : $SOURCE_TOKEN"
+    run_forge_script_readonly "script/reprieve/CheckMockTokenMapping.s.sol:CheckMockTokenMapping"
+    ;;
+  bridge-role-check)
+    set_chain "$chain"
+    token_addr="${arg3:-}"
+    bridge_account="${arg4:-}"
+    if [ -z "$token_addr" ] || [ -z "$bridge_account" ]; then
+      echo "bridge-role-check requires <chain> <token-address> <account-address>."
+      usage
+      exit 1
+    fi
+    export TOKEN_ADDRESS="$token_addr"
+    export BRIDGE_ACCOUNT="$bridge_account"
+    echo "Checking bridge roles on $CHAIN_NAME"
+    echo "  Token         : $TOKEN_ADDRESS"
+    echo "  Bridge account: $BRIDGE_ACCOUNT"
+    run_forge_script_readonly "script/reprieve/CheckBridgeRoles.s.sol:CheckBridgeRoles"
+    ;;
+  bridge-role-set)
+    set_chain "$chain"
+    token_addr="${arg3:-}"
+    bridge_account="${arg4:-}"
+    role_kind_input="${arg5:-}"
+    allowed_input="${6:-true}"
+    if [ -z "$token_addr" ] || [ -z "$bridge_account" ] || [ -z "$role_kind_input" ]; then
+      echo "bridge-role-set requires <chain> <token-address> <account-address> <minter|burner|both> [true|false]."
+      usage
+      exit 1
+    fi
+
+    role_kind="$(to_upper "$role_kind_input")"
+    case "$role_kind" in
+      MINTER|BURNER|BOTH) ;;
+      *)
+        echo "Invalid role kind '$role_kind_input'. Use minter, burner, or both."
+        exit 1
+        ;;
+    esac
+
+    allowed_lower="$(echo "$allowed_input" | tr '[:upper:]' '[:lower:]')"
+    case "$allowed_lower" in
+      true|false) ;;
+      *)
+        echo "Invalid allowed flag '$allowed_input'. Use true or false."
+        exit 1
+        ;;
+    esac
+
+    export TOKEN_ADDRESS="$token_addr"
+    export BRIDGE_ACCOUNT="$bridge_account"
+    export ROLE_KIND="$role_kind"
+    if [ "$allowed_lower" = "true" ]; then
+      export ROLE_ALLOWED=true
+    else
+      export ROLE_ALLOWED=false
+    fi
+
+    echo "Setting bridge roles on $CHAIN_NAME"
+    echo "  Token         : $TOKEN_ADDRESS"
+    echo "  Bridge account: $BRIDGE_ACCOUNT"
+    echo "  Role kind     : $ROLE_KIND"
+    echo "  Allowed       : $ROLE_ALLOWED"
+    run_forge_script "script/reprieve/SetBridgeRoles.s.sol:SetBridgeRoles"
     ;;
   mock-relay|cross-chain-rescue-relay)
     source_chain="$arg2"

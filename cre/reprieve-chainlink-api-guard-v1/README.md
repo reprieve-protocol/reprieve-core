@@ -38,6 +38,12 @@ Profile workflow for `CHAINLINK_API_GUARD_V1`.
 - `bun test lib/risk-v1.test.ts`
 - `cre workflow simulate ./reprieve-chainlink-api-guard-v1 --target=staging-settings`
 
+## Multi-chain capability note
+
+- This workflow can read adapters across multiple EVM chains in one execution.
+- Base Sepolia adapters here use `chainSelectorName: ethereum-testnet-sepolia-base-1`.
+- If simulation logs show `no compatible capability found for id evm:ChainSelector:10344971235874465080@1.0.0`, your current CRE target does not have Base Sepolia EVM read capability enabled. In that case, Ethereum reads succeed but Base reads fail.
+
 ## Simulate with real tx broadcast
 
 - `simulate` defaults to dry execution for writes unless `--broadcast` is provided.

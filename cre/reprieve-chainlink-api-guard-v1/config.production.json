@@ -4,10 +4,10 @@
   "chainSelectorName": "ethereum-testnet-sepolia",
   "isTestnet": true,
   "contracts": {
-    "rescueExecutor": "0xd2ade981e8db77250DE58ee241529143435E234F",
-    "rescueReporter": "0x8F562980983Cb710c943617452C5aF158641e126",
-    "workflowReceiver": "0x8F562980983Cb710c943617452C5aF158641e126",
-    "ccipReceiver": "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+    "rescueExecutor": "0x99B6e30b737F1D451B44F8369d3EC1809ab25262",
+    "rescueReporter": "0x860Cde8737998D6166340d485ad68f49B5d6C3e9",
+    "workflowReceiver": "0x860Cde8737998D6166340d485ad68f49B5d6C3e9",
+    "ccipReceiver": "0xD88Ca3501A08Fa70ef95415512b68C013aAdfd99"
   },
   "trigger": {
     "http": {
@@ -21,8 +21,8 @@
       "chainSelectorName": "ethereum-testnet-sepolia",
       "isTestnet": true,
       "addresses": [
-        "0xd2ade981e8db77250DE58ee241529143435E234F",
-        "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+        "0x99B6e30b737F1D451B44F8369d3EC1809ab25262",
+        "0xD88Ca3501A08Fa70ef95415512b68C013aAdfd99"
       ],
       "topics": [
         "0xd4128db1fda076924846d094ad59a41b49f7a4549d7458efe4cc4b646e71ff8f",
@@ -66,15 +66,39 @@
       {
         "label": "source-aave-adapter",
         "adapterAddress": "0x9a2389d74e6318C67824339e37450437b4De7027",
+        "chainSelectorName": "ethereum-testnet-sepolia",
+        "isTestnet": true,
         "rescueTargetChainSelector": "10344971235874465080"
       },
       {
         "label": "target-compound-adapter",
-        "adapterAddress": "0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa"
+        "adapterAddress": "0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa",
+        "chainSelectorName": "ethereum-testnet-sepolia",
+        "isTestnet": true
       },
       {
         "label": "aux-morpho-adapter",
-        "adapterAddress": "0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68"
+        "adapterAddress": "0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68",
+        "chainSelectorName": "ethereum-testnet-sepolia",
+        "isTestnet": true
+      },
+      {
+        "label": "base-aave-adapter",
+        "adapterAddress": "0x3Ce2A7601623bdB7aF942eD07BF185b5a8CF0cd9",
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "isTestnet": true
+      },
+      {
+        "label": "base-compound-adapter",
+        "adapterAddress": "0xA10dD58EcAdf3fd071a23415e55FD23287d684bc",
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "isTestnet": true
+      },
+      {
+        "label": "base-morpho-adapter",
+        "adapterAddress": "0x325fADdd2B7F0B3f7ab8E5113F31a4C208669f44",
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "isTestnet": true
       }
     ],
     "abortOnMissingPrice": true,
@@ -84,9 +108,6 @@
     "chainlinkApi": {
       "priceApiBaseUrl": "https://api.chainlink.example",
       "priceApiPath": "/v1/price",
-      "positionsApiBaseUrl": "http://localhost:3001",
-      "positionsApiPath": "/v1/positions/:address/risk-snapshot",
-      "positionsApiMaxAgeSec": 600,
       "maxPriceAgeSec": 120,
       "stalePolicy": "ABORT",
       "crossChainAssetMap": {

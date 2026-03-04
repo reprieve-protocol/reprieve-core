@@ -230,12 +230,16 @@ This plan implements [reprieve-backend-nest-design.md](/Users/sniperman/code/rep
 
 ## Slide 5 - Relay Worker (Mock CCIP Relay Automation)
 
+### Status
+- In progress: DB-driven relay scanner/worker + relay APIs + replay script implemented; live end-to-end validation pending.
+
 ### Development Scope
-- Drive relay jobs from indexed `CrossChainInitiated` events.
+- Drive relay jobs from DB-detected unresolved cross-chain executions.
 - Execute existing script pipeline with retry/backoff.
 
 ### Build Tasks
-- On event ingest, upsert `relay_jobs` by `message_id`.
+- Periodically scan DB for `CrossChainInitiated` events that do not yet have terminal destination events (`CrossChainCompleted`/`CrossChainDestinationFailed`/`MessageFailed`).
+- Upsert `relay_jobs` by `message_id` from this unresolved set (idempotent replay-safe).
 - Relay worker:
   - lock pending job
   - execute `./scripts/ops.sh cross-chain-rescue-relay <source> <dest> <message-id>`
@@ -257,11 +261,11 @@ This plan implements [reprieve-backend-nest-design.md](/Users/sniperman/code/rep
   - `scripts/backend/relay-replay.sh <message-id>`.
 
 ### Acceptance Criteria
-- Relay jobs are created automatically from source-chain cross-chain events.
+- Relay jobs are created automatically from unresolved cross-chain events in DB, including older missed events.
 - Relay execution is idempotent and observable.
 
 ### Validation Checklist
-- [ ] `CrossChainInitiated` creates one relay job.
+- [ ] Unresolved `CrossChainInitiated` event creates one relay job.
 - [ ] Success updates status to `success`.
 - [ ] Repeated trigger for same message keeps one terminal job.
 - [ ] Manual retry endpoint works for failed/dead jobs.

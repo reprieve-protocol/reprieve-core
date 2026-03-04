@@ -4,9 +4,9 @@
   "chainSelectorName": "ethereum-testnet-sepolia",
   "isTestnet": true,
   "contracts": {
-    "rescueExecutor": "0xd2ade981e8db77250DE58ee241529143435E234F",
-    "rescueReporter": "0xD990d952E82784e61852b8D4d465CB40C08F4B7d",
-    "ccipReceiver": "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+    "rescueExecutor": "0x99B6e30b737F1D451B44F8369d3EC1809ab25262",
+    "rescueReporter": "0xaB1eF61204443CfAfFA4D9A3593F7B0bC72d5C64",
+    "ccipReceiver": "0xD88Ca3501A08Fa70ef95415512b68C013aAdfd99"
   },
   "trigger": {
     "http": {
@@ -20,8 +20,8 @@
       "chainSelectorName": "ethereum-testnet-sepolia",
       "isTestnet": true,
       "addresses": [
-        "0xd2ade981e8db77250DE58ee241529143435E234F",
-        "0x2F4C55e8e87cA24F3f8d4acc6849ADd97AF9ebbB"
+        "0x99B6e30b737F1D451B44F8369d3EC1809ab25262",
+        "0xD88Ca3501A08Fa70ef95415512b68C013aAdfd99"
       ],
       "topics": [
         "0xd4128db1fda076924846d094ad59a41b49f7a4549d7458efe4cc4b646e71ff8f",

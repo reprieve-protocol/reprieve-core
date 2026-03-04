@@ -14,8 +14,6 @@ import type {
 } from "../types";
 import {
   discoverPositions,
-  readAvailableCollateral,
-  readHealthFactor,
   readMockOraclePrice,
   readTokenDecimals,
   type AdapterPosition,
@@ -688,6 +686,14 @@ const canonicalizeAsset = (
   return mapped.toLowerCase() as Address;
 };
 
+const inferChainIdFromSelectorName = (selectorName?: string): number | undefined => {
+  if (!selectorName) return undefined;
+  const key = selectorName.toLowerCase();
+  if (key === "ethereum-testnet-sepolia") return 11155111;
+  if (key === "base-testnet-sepolia" || key === "ethereum-testnet-sepolia-base-1") return 84532;
+  return undefined;
+};
+
 const evaluateDecision = (
   weakestEffectiveHfWad: bigint,
   config: ChainlinkApiGuardConfig,
@@ -745,100 +751,84 @@ export const evaluateChainlinkApiGuard = (
   user: Address
 ): ChainlinkV1Evaluation => {
   const stalePolicy = config.dataSources.chainlinkApi.stalePolicy ?? "ABORT";
-  const chain = {
+  const priceReadChain = {
     chainSelectorName: config.chainSelectorName,
     isTestnet: config.isTestnet,
   };
 
   let snapshots: AdapterSnapshot[] = [];
   let decimalsByAsset: Record<string, number> = {};
-  let positionSource: "backend" | "onchain" = "onchain";
+  const positionSource: "onchain" = "onchain";
   const adapterReadErrors: string[] = [];
-  const hasBackendPositionsApi =
-    !!config.dataSources.chainlinkApi.positionsApiBaseUrl &&
-    !!config.dataSources.chainlinkApi.positionsApiPath;
+  const decimalsCache = new Map<Address, number>();
 
-  if (hasBackendPositionsApi) {
+  for (const adapterCfg of config.monitoring.adapters) {
+    const adapterAddress = adapterCfg.adapterAddress as Address;
+    const adapterChain = {
+      chainSelectorName: adapterCfg.chainSelectorName ?? config.chainSelectorName,
+      isTestnet: adapterCfg.isTestnet ?? config.isTestnet,
+    };
+    runtime.log(
+      `[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} adapter=${adapterAddress}`
+    );
+
+    let positions: AdapterPosition[] = [];
+    let hfWad = MAX_HF_WAD;
+    let availableCollateral = 0n;
+
     try {
-      const backendPayload = loadBackendRiskSnapshot(runtime, config, user);
-      const backend = buildSnapshotsFromBackend(runtime, config, backendPayload);
-      snapshots = backend.snapshots;
-      decimalsByAsset = backend.decimalsByAsset;
-      positionSource = "backend";
+      positions = discoverPositions(runtime, adapterChain, adapterAddress, user);
+      runtime.log(
+        `[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} positions=${positions.length}`
+      );
+      if (positions.length === 0) continue;
 
-      if (backend.isStale) {
-        if (stalePolicy === "ABORT") {
-          return {
-            decision: "ABORT",
-            reason: "Backend risk snapshot is stale",
-            metadata: {
-              user,
-              positionSource,
-              latestAgeSec: backend.latestAgeSec,
-              positionsApiMaxAgeSec:
-                config.dataSources.chainlinkApi.positionsApiMaxAgeSec ?? 600,
-              stalePolicy,
-            },
-            snapshots: [],
-            priceByAsset: {},
-            decimalsByAsset: {},
-          };
+      for (const position of positions) {
+        availableCollateral += position.collateralAmount;
+        if (position.debtAmount > 0n && position.healthFactor < hfWad) {
+          hfWad = position.healthFactor;
         }
-        runtime.log(
-          `[V1] WARN_ONLY: backend snapshot is stale (latestAgeSec=${backend.latestAgeSec})`
-        );
+
+        const collateralAsset = (position.collateralAsset as Address).toLowerCase() as Address;
+        const debtAsset = (position.debtAsset as Address).toLowerCase() as Address;
+
+        if (!decimalsCache.has(collateralAsset)) {
+          try {
+            const value = readTokenDecimals(runtime, adapterChain, collateralAsset);
+            decimalsCache.set(collateralAsset, value);
+            decimalsByAsset[collateralAsset] = value;
+          } catch {}
+        }
+
+        if (!decimalsCache.has(debtAsset)) {
+          try {
+            const value = readTokenDecimals(runtime, adapterChain, debtAsset);
+            decimalsCache.set(debtAsset, value);
+            decimalsByAsset[debtAsset] = value;
+          } catch {}
+        }
       }
     } catch (error) {
-      return {
-        decision: "ABORT",
-        reason: "Backend risk snapshot fetch failed",
-        metadata: {
-          user,
-          positionSource: "backend",
-          error: error instanceof Error ? error.message : String(error),
-        },
-        snapshots: [],
-        priceByAsset: {},
-        decimalsByAsset: {},
-      };
+      runtime.log(
+        `[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} status=error reason=${error instanceof Error ? error.message : String(error)}`
+      );
+      adapterReadErrors.push(
+        `${adapterCfg.label}@${adapterChain.chainSelectorName}:${error instanceof Error ? error.message : String(error)}`
+      );
+      continue;
     }
-  } else {
-    for (const adapterCfg of config.monitoring.adapters) {
-      const adapterAddress = adapterCfg.adapterAddress as Address;
-      let positions: AdapterPosition[] = [];
-      let hfWad = 0n;
-      let availableCollateral = 0n;
 
-      try {
-        positions = discoverPositions(runtime, chain, adapterAddress, user);
-        if (positions.length === 0) continue;
-
-        hfWad = readHealthFactor(runtime, chain, adapterAddress, user);
-        availableCollateral = readAvailableCollateral(
-          runtime,
-          chain,
-          adapterAddress,
-          user,
-          positions[0].collateralAsset as Address
-        );
-      } catch (error) {
-        adapterReadErrors.push(
-          `${adapterCfg.label}:${error instanceof Error ? error.message : String(error)}`
-        );
-        continue;
-      }
-
-      snapshots.push({
-        label: adapterCfg.label,
-        adapterAddress,
-        positions,
-        hfWad,
-        availableCollateral,
-        chainKey: config.chainSelectorName,
-        isConfiguredAdapter: true,
-        rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
-      });
-    }
+    snapshots.push({
+      label: adapterCfg.label,
+      adapterAddress,
+      positions,
+      hfWad,
+      availableCollateral,
+      chainId: inferChainIdFromSelectorName(adapterChain.chainSelectorName),
+      chainKey: adapterChain.chainSelectorName,
+      isConfiguredAdapter: true,
+      rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector,
+    });
   }
 
   if (snapshots.length === 0) {
@@ -880,7 +870,7 @@ export const evaluateChainlinkApiGuard = (
   const reports = loadReportsWithFallback(
     runtime,
     config,
-    chain,
+    priceReadChain,
     Array.from(canonicalAssets)
   );
   const priceByAsset: Record<string, string> = {};
@@ -1014,7 +1004,6 @@ export const evaluateChainlinkApiGuard = (
     };
   }
 
-  const decimalsCache = new Map<Address, number>();
   let decimalsReadErrors = 0;
   const readDecimalsCached = (asset: Address): number => {
     const key = asset.toLowerCase() as Address;
@@ -1027,7 +1016,7 @@ export const evaluateChainlinkApiGuard = (
     }
     let value = 18;
     try {
-      value = readTokenDecimals(runtime, chain, key);
+      value = readTokenDecimals(runtime, priceReadChain, key);
     } catch {
       decimalsReadErrors += 1;
     }

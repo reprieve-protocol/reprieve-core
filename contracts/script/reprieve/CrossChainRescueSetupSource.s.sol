@@ -32,7 +32,6 @@ contract CrossChainRescueSetupSource is Script {
 
         uint256 userCollateralMint = vm.envOr("USER_COLLATERAL_MINT", uint256(20 ether));
         uint256 sourceSupply = vm.envOr("SOURCE_SUPPLY_COLLATERAL", uint256(10 ether));
-        uint256 executorCollateralFloat = vm.envOr("EXECUTOR_COLLATERAL_FLOAT", uint256(15 ether));
 
         MockERC20 collateral = MockERC20(collateralAsset);
         MockAavePool sourceAavePool = MockAavePool(sourceAavePoolAddr);
@@ -51,7 +50,6 @@ contract CrossChainRescueSetupSource is Script {
 
         vm.startBroadcast(minterPk);
         collateral.mint(user, userCollateralMint);
-        collateral.mint(sourceExecutorAddr, executorCollateralFloat);
         vm.stopBroadcast();
 
         vm.startBroadcast(userPk);
@@ -105,4 +103,3 @@ contract CrossChainRescueSetupSource is Script {
         revert("CrossChainRescueSetupSource: RESCUE_MODE must be TOP_UP or REPAY");
     }
 }
-

@@ -742,15 +742,55 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             return false;
         }
 
+        // Get source adapter and enforce source-side collateral constraints.
+        IReprieveAdapter sourceAdapter = IReprieveAdapter(step.sourceAdapter);
+        uint256 availableCollateral = sourceAdapter.availableCollateral(user, step.collateralAsset);
+        uint256 maxWithdrawable = availableCollateral * (10000 - SOURCE_RESERVE_FACTOR_BPS) / 10000;
+
+        if (maxWithdrawable < step.collateralAmount) {
+            if (maxWithdrawable == 0) return false;
+            step.collateralAmount = maxWithdrawable;
+            if (mode == ReprieveTypes.RescueMode.REPAY && step.debtAmount > step.collateralAmount) {
+                step.debtAmount = step.collateralAmount;
+            }
+        }
+
         address actionAsset = mode == ReprieveTypes.RescueMode.TOP_UP ? step.collateralAsset : step.debtAsset;
         uint256 actionAmount = mode == ReprieveTypes.RescueMode.TOP_UP ? step.collateralAmount : step.debtAmount;
         if (actionAsset == address(0) || actionAmount == 0) {
             return false;
         }
-        
-        // Build and send CCIP message directly (internal call to avoid auth issues)
-        // Note: We don't use try/catch here because it only works with external calls
-        _sendCCIPMessage(
+
+        // Withdraw from source position first.
+        try sourceAdapter.withdrawForRescue(user, step.collateralAsset, step.collateralAmount, address(this)) {} catch {
+            return false;
+        }
+
+        // Send CCIP message; if it fails after withdrawal, escrow withdrawn funds.
+        try this._sendCrossChainMessageAfterWithdraw(step, receiver, user, execId, mode, actionAsset, actionAmount) returns (bytes32) {
+            return true;
+        } catch {
+            _escrowWithdrawnFunds(step, user, execId);
+            return false;
+        }
+    }
+
+    /**
+     * @notice Sends a cross-chain message after source-side withdrawal.
+     * @dev External self-call wrapper enables try/catch in `_initiateCrossChainStep`.
+     */
+    function _sendCrossChainMessageAfterWithdraw(
+        ReprieveTypes.RescueStep memory step,
+        address receiver,
+        address user,
+        bytes32 execId,
+        ReprieveTypes.RescueMode mode,
+        address actionAsset,
+        uint256 actionAmount
+    ) external returns (bytes32 messageId) {
+        require(msg.sender == address(this), "Only self");
+
+        messageId = _sendCCIPMessage(
             step.targetChain,
             receiver,
             user,
@@ -764,7 +804,6 @@ contract RescueExecutor is IRescueExecutor, Ownable, ReentrancyGuard {
             step.stepIndex,
             address(0) // Use native token for fees
         );
-        return true;
     }
 
     function _validateStepForMode(
