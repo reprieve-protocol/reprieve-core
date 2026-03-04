@@ -46,6 +46,7 @@ export interface TriggerConfig {
 export interface ContractConfig {
   rescueExecutor: string;
   rescueReporter: string;
+  workflowReceiver?: string;
   ccipReceiver: string;
 }
 
@@ -67,6 +68,7 @@ export interface RescuePolicyConfig {
   defaultMode: "TOP_UP" | "REPAY";
   allowCrossChain: boolean;
   reserveCapBps: number;
+  minActionUsd: number;
 }
 
 export interface CrossChainConfig {
@@ -78,8 +80,9 @@ export interface CrossChainConfig {
 export interface MonitoredAdapterConfig {
   label: string;
   adapterAddress: string;
+  chainSelectorName?: string;
+  isTestnet?: boolean;
   rescueTargetChainSelector?: string;
-  preferCrossChain?: boolean;
 }
 
 export interface MonitoringConfig {
@@ -93,7 +96,13 @@ export interface ChainlinkApiSourceConfig {
   priceApiBaseUrl: string;
   priceApiPath: string;
   maxPriceAgeSec: number;
+  stalePolicy?: "ABORT" | "WARN_ONLY";
+  crossChainAssetMap?: Record<string, string>;
   integritySalt: string;
+  positionsApiBaseUrl?: string;
+  positionsApiPath?: string;
+  positionsApiKey?: string;
+  positionsApiMaxAgeSec?: number;
   preferOnchainOracle?: boolean;
   mockOracleAddress?: string;
   mockPricesUsd: Record<string, string>;
@@ -160,6 +169,7 @@ export interface QuantFundingOiConfig extends BaseWorkflowConfig {
   budget: RiskBudgetConfig;
   rescue: RescuePolicyConfig;
   crossChain: CrossChainConfig;
+  monitoring: MonitoringConfig;
   dataSources: {
     chainlinkApi: ChainlinkApiSourceConfig;
     quantFundingOi: QuantFundingOiSourceConfig;
@@ -172,6 +182,7 @@ export interface QuantBasisLiquidityConfig extends BaseWorkflowConfig {
   budget: RiskBudgetConfig;
   rescue: RescuePolicyConfig;
   crossChain: CrossChainConfig;
+  monitoring: MonitoringConfig;
   dataSources: {
     chainlinkApi: ChainlinkApiSourceConfig;
     quantFundingOi: QuantFundingOiSourceConfig;
@@ -321,6 +332,10 @@ const parseContracts = (value: unknown): ContractConfig => {
   return {
     rescueExecutor: requireString(value.rescueExecutor, "contracts.rescueExecutor"),
     rescueReporter: requireString(value.rescueReporter, "contracts.rescueReporter"),
+    workflowReceiver:
+      value.workflowReceiver === undefined
+        ? undefined
+        : requireString(value.workflowReceiver, "contracts.workflowReceiver"),
     ccipReceiver: requireString(value.ccipReceiver, "contracts.ccipReceiver"),
   };
 };
@@ -370,6 +385,10 @@ const parseRescuePolicy = (value: unknown): RescuePolicyConfig => {
     defaultMode,
     allowCrossChain: requireBoolean(value.allowCrossChain, "rescue.allowCrossChain"),
     reserveCapBps: requireNumber(value.reserveCapBps, "rescue.reserveCapBps", 1, 10000),
+    minActionUsd:
+      value.minActionUsd === undefined
+        ? 0
+        : requireNumber(value.minActionUsd, "rescue.minActionUsd", 0),
   };
 };
 
@@ -402,14 +421,18 @@ const parseMonitoredAdapter = (value: unknown, path: string): MonitoredAdapterCo
   return {
     label: requireString(value.label, `${path}.label`),
     adapterAddress: requireString(value.adapterAddress, `${path}.adapterAddress`),
+    chainSelectorName:
+      value.chainSelectorName === undefined
+        ? undefined
+        : requireString(value.chainSelectorName, `${path}.chainSelectorName`),
+    isTestnet:
+      value.isTestnet === undefined
+        ? undefined
+        : requireBoolean(value.isTestnet, `${path}.isTestnet`),
     rescueTargetChainSelector:
       value.rescueTargetChainSelector === undefined
         ? undefined
         : requireString(value.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`),
-    preferCrossChain:
-      value.preferCrossChain === undefined
-        ? undefined
-        : requireBoolean(value.preferCrossChain, `${path}.preferCrossChain`),
   };
 };
 
@@ -448,6 +471,34 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
     throw new Error('Invalid config at "dataSources.chainlinkApi": expected object');
   }
 
+  const stalePolicyRaw =
+    value.stalePolicy === undefined
+      ? "ABORT"
+      : requireString(value.stalePolicy, "dataSources.chainlinkApi.stalePolicy");
+  if (stalePolicyRaw !== "ABORT" && stalePolicyRaw !== "WARN_ONLY") {
+    throw new Error(
+      'Invalid config at "dataSources.chainlinkApi.stalePolicy": expected ABORT or WARN_ONLY'
+    );
+  }
+
+  const crossChainAssetMapRaw = value.crossChainAssetMap;
+  const crossChainAssetMap: Record<string, string> = {};
+  if (crossChainAssetMapRaw !== undefined) {
+    if (!isRecord(crossChainAssetMapRaw)) {
+      throw new Error(
+        'Invalid config at "dataSources.chainlinkApi.crossChainAssetMap": expected object map'
+      );
+    }
+    for (const [fromAsset, toAssetRaw] of Object.entries(crossChainAssetMapRaw)) {
+      if (typeof toAssetRaw !== "string" || toAssetRaw.trim().length === 0) {
+        throw new Error(
+          `Invalid config at "dataSources.chainlinkApi.crossChainAssetMap.${fromAsset}": expected non-empty string`
+        );
+      }
+      crossChainAssetMap[fromAsset.toLowerCase()] = toAssetRaw.toLowerCase();
+    }
+  }
+
   return {
     priceApiBaseUrl: requireString(
       value.priceApiBaseUrl,
@@ -462,10 +513,41 @@ const parseChainlinkApiSource = (value: unknown): ChainlinkApiSourceConfig => {
       "dataSources.chainlinkApi.maxPriceAgeSec",
       0
     ),
+    stalePolicy: stalePolicyRaw,
+    crossChainAssetMap,
     integritySalt: requireString(
       value.integritySalt,
       "dataSources.chainlinkApi.integritySalt"
     ),
+    positionsApiBaseUrl:
+      value.positionsApiBaseUrl === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiBaseUrl,
+            "dataSources.chainlinkApi.positionsApiBaseUrl"
+          ),
+    positionsApiPath:
+      value.positionsApiPath === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiPath,
+            "dataSources.chainlinkApi.positionsApiPath"
+          ),
+    positionsApiKey:
+      value.positionsApiKey === undefined
+        ? undefined
+        : requireString(
+            value.positionsApiKey,
+            "dataSources.chainlinkApi.positionsApiKey"
+          ),
+    positionsApiMaxAgeSec:
+      value.positionsApiMaxAgeSec === undefined
+        ? undefined
+        : requireNumber(
+            value.positionsApiMaxAgeSec,
+            "dataSources.chainlinkApi.positionsApiMaxAgeSec",
+            1
+          ),
     preferOnchainOracle:
       value.preferOnchainOracle === undefined
         ? undefined
@@ -761,6 +843,7 @@ export const parseProfileWorkflowConfig = (
         ...base,
         strategyId: "QUANT_FUNDING_OI_V1",
         ...common,
+        monitoring: parseMonitoring(raw.monitoring),
         thresholds: parseFundingOiThresholds(raw.thresholds),
         dataSources: {
           chainlinkApi: parseChainlinkApiSource(dataSources.chainlinkApi),
@@ -773,6 +856,7 @@ export const parseProfileWorkflowConfig = (
         ...base,
         strategyId: "QUANT_BASIS_LIQUIDITY_V1",
         ...common,
+        monitoring: parseMonitoring(raw.monitoring),
         thresholds: parseBasisLiquidityThresholds(raw.thresholds),
         dataSources: {
           chainlinkApi: parseChainlinkApiSource(dataSources.chainlinkApi),

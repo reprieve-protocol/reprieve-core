@@ -10,8 +10,10 @@ import {
 } from "@chainlink/cre-sdk";
 import {
   decodeEventLog,
+  encodeAbiParameters,
   decodeFunctionResult,
   encodeFunctionData,
+  parseAbiParameters,
   parseAbi,
   zeroAddress,
   type Address,
@@ -107,6 +109,10 @@ const RESCUE_EXECUTOR_ABI = parseAbi([
   "function getRescueStatus(bytes32 execId) view returns (uint8)",
   "function getCcipMessageId(bytes32 execId) view returns (bytes32)",
   "function executeRescue((bytes32 execId,address user,uint8 mode,(uint256 stepIndex,address sourceAdapter,address targetAdapter,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,bool isCrossChain,uint64 targetChain)[] steps,uint256 deadline,uint256 maxFee) plan) returns (bool success)",
+]);
+
+const RESCUE_PLAN_REPORT_PARAMS = parseAbiParameters([
+  "(bytes32,address,uint8,(uint256,address,address,address,address,uint256,uint256,bool,uint64)[],uint256,uint256)",
 ]);
 
 const RESCUE_LOG_ABI = parseAbi([
@@ -208,7 +214,14 @@ const writeContract = (
     args,
   });
 
-  const result = (evmClient as any).write(
+  const writeFn = (evmClient as unknown as { write?: Function }).write;
+  if (typeof writeFn !== "function") {
+    throw new Error(
+      "EVMClient.write unavailable in this @chainlink/cre-sdk runtime; direct contract tx submission is not supported"
+    );
+  }
+
+  const result = writeFn.call(evmClient,
     {
       contractAddress: hexToBase64(contractAddress),
       calldata: hexToBase64(calldata),
@@ -391,6 +404,68 @@ export const submitRescuePlan = (
     [plan],
     gasLimit
   );
+
+const encodeRescuePlanReport = (plan: RescuePlanInput): Hex =>
+  encodeAbiParameters(RESCUE_PLAN_REPORT_PARAMS, [
+    // viem expects strict tuple arrays for nested ABI tuples.
+    ([
+      plan.execId,
+      plan.user,
+      plan.mode,
+      plan.steps.map(
+        (step): [bigint, Address, Address, Address, Address, bigint, bigint, boolean, bigint] => [
+          step.stepIndex,
+          step.sourceAdapter,
+          step.targetAdapter,
+          step.collateralAsset,
+          step.debtAsset,
+          step.collateralAmount,
+          step.debtAmount,
+          step.isCrossChain,
+          step.targetChain,
+        ]
+      ),
+      plan.deadline,
+      plan.maxFee,
+    ] as const),
+  ]);
+
+export const submitRescuePlanReport = (
+  runtime: Runtime<BaseWorkflowConfig>,
+  chain: ChainRef,
+  workflowReceiverAddress: Address,
+  plan: RescuePlanInput,
+  gasLimit = "2500000"
+): Hex => {
+  const evmClient = createEvmClient(chain);
+  const reportPayload = encodeRescuePlanReport(plan);
+
+  runtime.log("Submitting rescue report");
+  runtime.log(`Report receiver: ${workflowReceiverAddress}`);
+  runtime.log(`Execution id: ${plan.execId}`);
+  runtime.log(`Report gas limit: ${gasLimit}`);
+
+  const reportResponse = runtime
+    .report({
+      encodedPayload: hexToBase64(reportPayload),
+      encoderName: "evm",
+      signingAlgo: "ecdsa",
+      hashingAlgo: "keccak256",
+    })
+    .result();
+
+  const writeResult = evmClient.writeReport(runtime, {
+    receiver: workflowReceiverAddress,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit,
+    },
+  }).result();
+
+  const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32)) as Hex;
+  runtime.log(`Rescue report submitted. Tx: ${txHash}`);
+  return txHash;
+};
 
 export const readRescueLogEntries = (
   runtime: Runtime<BaseWorkflowConfig>,

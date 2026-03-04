@@ -9,6 +9,2838 @@ var __export = (target, all) => {
       set: (newValue) => all[name] = () => newValue
     });
 };
+var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
+var version = "1.0.8";
+var BaseError;
+var init_errors = __esm(() => {
+  BaseError = class BaseError2 extends Error {
+    constructor(shortMessage, args = {}) {
+      const details = args.cause instanceof BaseError2 ? args.cause.details : args.cause?.message ? args.cause.message : args.details;
+      const docsPath = args.cause instanceof BaseError2 ? args.cause.docsPath || args.docsPath : args.docsPath;
+      const message = [
+        shortMessage || "An error occurred.",
+        "",
+        ...args.metaMessages ? [...args.metaMessages, ""] : [],
+        ...docsPath ? [`Docs: https://abitype.dev${docsPath}`] : [],
+        ...details ? [`Details: ${details}`] : [],
+        `Version: abitype@${version}`
+      ].join(`
+`);
+      super(message);
+      Object.defineProperty(this, "details", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "docsPath", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "metaMessages", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "shortMessage", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "AbiTypeError"
+      });
+      if (args.cause)
+        this.cause = args.cause;
+      this.details = details;
+      this.docsPath = docsPath;
+      this.metaMessages = args.metaMessages;
+      this.shortMessage = shortMessage;
+    }
+  };
+});
+function execTyped(regex, string) {
+  const match = regex.exec(string);
+  return match?.groups;
+}
+var bytesRegex;
+var integerRegex;
+var isTupleRegex;
+var init_regex = __esm(() => {
+  bytesRegex = /^bytes([1-9]|1[0-9]|2[0-9]|3[0-2])?$/;
+  integerRegex = /^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/;
+  isTupleRegex = /^\(.+?\).*?$/;
+});
+function formatAbiParameter(abiParameter) {
+  let type = abiParameter.type;
+  if (tupleRegex.test(abiParameter.type) && "components" in abiParameter) {
+    type = "(";
+    const length = abiParameter.components.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      const component = abiParameter.components[i2];
+      type += formatAbiParameter(component);
+      if (i2 < length - 1)
+        type += ", ";
+    }
+    const result = execTyped(tupleRegex, abiParameter.type);
+    type += `)${result?.array ?? ""}`;
+    return formatAbiParameter({
+      ...abiParameter,
+      type
+    });
+  }
+  if ("indexed" in abiParameter && abiParameter.indexed)
+    type = `${type} indexed`;
+  if (abiParameter.name)
+    return `${type} ${abiParameter.name}`;
+  return type;
+}
+var tupleRegex;
+var init_formatAbiParameter = __esm(() => {
+  init_regex();
+  tupleRegex = /^tuple(?<array>(\[(\d*)\])*)$/;
+});
+function formatAbiParameters(abiParameters) {
+  let params = "";
+  const length = abiParameters.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const abiParameter = abiParameters[i2];
+    params += formatAbiParameter(abiParameter);
+    if (i2 !== length - 1)
+      params += ", ";
+  }
+  return params;
+}
+var init_formatAbiParameters = __esm(() => {
+  init_formatAbiParameter();
+});
+function formatAbiItem(abiItem) {
+  if (abiItem.type === "function")
+    return `function ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability && abiItem.stateMutability !== "nonpayable" ? ` ${abiItem.stateMutability}` : ""}${abiItem.outputs?.length ? ` returns (${formatAbiParameters(abiItem.outputs)})` : ""}`;
+  if (abiItem.type === "event")
+    return `event ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "error")
+    return `error ${abiItem.name}(${formatAbiParameters(abiItem.inputs)})`;
+  if (abiItem.type === "constructor")
+    return `constructor(${formatAbiParameters(abiItem.inputs)})${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  if (abiItem.type === "fallback")
+    return `fallback() external${abiItem.stateMutability === "payable" ? " payable" : ""}`;
+  return "receive() external payable";
+}
+var init_formatAbiItem = __esm(() => {
+  init_formatAbiParameters();
+});
+function isErrorSignature(signature) {
+  return errorSignatureRegex.test(signature);
+}
+function execErrorSignature(signature) {
+  return execTyped(errorSignatureRegex, signature);
+}
+function isEventSignature(signature) {
+  return eventSignatureRegex.test(signature);
+}
+function execEventSignature(signature) {
+  return execTyped(eventSignatureRegex, signature);
+}
+function isFunctionSignature(signature) {
+  return functionSignatureRegex.test(signature);
+}
+function execFunctionSignature(signature) {
+  return execTyped(functionSignatureRegex, signature);
+}
+function isStructSignature(signature) {
+  return structSignatureRegex.test(signature);
+}
+function execStructSignature(signature) {
+  return execTyped(structSignatureRegex, signature);
+}
+function isConstructorSignature(signature) {
+  return constructorSignatureRegex.test(signature);
+}
+function execConstructorSignature(signature) {
+  return execTyped(constructorSignatureRegex, signature);
+}
+function isFallbackSignature(signature) {
+  return fallbackSignatureRegex.test(signature);
+}
+function execFallbackSignature(signature) {
+  return execTyped(fallbackSignatureRegex, signature);
+}
+function isReceiveSignature(signature) {
+  return receiveSignatureRegex.test(signature);
+}
+var errorSignatureRegex;
+var eventSignatureRegex;
+var functionSignatureRegex;
+var structSignatureRegex;
+var constructorSignatureRegex;
+var fallbackSignatureRegex;
+var receiveSignatureRegex;
+var modifiers;
+var eventModifiers;
+var functionModifiers;
+var init_signatures = __esm(() => {
+  init_regex();
+  errorSignatureRegex = /^error (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  eventSignatureRegex = /^event (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)$/;
+  functionSignatureRegex = /^function (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*)\((?<parameters>.*?)\)(?: (?<scope>external|public{1}))?(?: (?<stateMutability>pure|view|nonpayable|payable{1}))?(?: returns\s?\((?<returns>.*?)\))?$/;
+  structSignatureRegex = /^struct (?<name>[a-zA-Z$_][a-zA-Z0-9$_]*) \{(?<properties>.*?)\}$/;
+  constructorSignatureRegex = /^constructor\((?<parameters>.*?)\)(?:\s(?<stateMutability>payable{1}))?$/;
+  fallbackSignatureRegex = /^fallback\(\) external(?:\s(?<stateMutability>payable{1}))?$/;
+  receiveSignatureRegex = /^receive\(\) external payable$/;
+  modifiers = new Set([
+    "memory",
+    "indexed",
+    "storage",
+    "calldata"
+  ]);
+  eventModifiers = new Set(["indexed"]);
+  functionModifiers = new Set([
+    "calldata",
+    "memory",
+    "storage"
+  ]);
+});
+var UnknownTypeError;
+var UnknownSolidityTypeError;
+var init_abiItem = __esm(() => {
+  init_errors();
+  UnknownTypeError = class UnknownTypeError2 extends BaseError {
+    constructor({ type }) {
+      super("Unknown type.", {
+        metaMessages: [
+          `Type "${type}" is not a valid ABI type. Perhaps you forgot to include a struct signature?`
+        ]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "UnknownTypeError"
+      });
+    }
+  };
+  UnknownSolidityTypeError = class UnknownSolidityTypeError2 extends BaseError {
+    constructor({ type }) {
+      super("Unknown type.", {
+        metaMessages: [`Type "${type}" is not a valid ABI type.`]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "UnknownSolidityTypeError"
+      });
+    }
+  };
+});
+var InvalidAbiParametersError;
+var InvalidParameterError;
+var SolidityProtectedKeywordError;
+var InvalidModifierError;
+var InvalidFunctionModifierError;
+var InvalidAbiTypeParameterError;
+var init_abiParameter = __esm(() => {
+  init_errors();
+  InvalidAbiParametersError = class InvalidAbiParametersError2 extends BaseError {
+    constructor({ params }) {
+      super("Failed to parse ABI parameters.", {
+        details: `parseAbiParameters(${JSON.stringify(params, null, 2)})`,
+        docsPath: "/api/human#parseabiparameters-1"
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidAbiParametersError"
+      });
+    }
+  };
+  InvalidParameterError = class InvalidParameterError2 extends BaseError {
+    constructor({ param }) {
+      super("Invalid ABI parameter.", {
+        details: param
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidParameterError"
+      });
+    }
+  };
+  SolidityProtectedKeywordError = class SolidityProtectedKeywordError2 extends BaseError {
+    constructor({ param, name }) {
+      super("Invalid ABI parameter.", {
+        details: param,
+        metaMessages: [
+          `"${name}" is a protected Solidity keyword. More info: https://docs.soliditylang.org/en/latest/cheatsheet.html`
+        ]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "SolidityProtectedKeywordError"
+      });
+    }
+  };
+  InvalidModifierError = class InvalidModifierError2 extends BaseError {
+    constructor({ param, type, modifier }) {
+      super("Invalid ABI parameter.", {
+        details: param,
+        metaMessages: [
+          `Modifier "${modifier}" not allowed${type ? ` in "${type}" type` : ""}.`
+        ]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidModifierError"
+      });
+    }
+  };
+  InvalidFunctionModifierError = class InvalidFunctionModifierError2 extends BaseError {
+    constructor({ param, type, modifier }) {
+      super("Invalid ABI parameter.", {
+        details: param,
+        metaMessages: [
+          `Modifier "${modifier}" not allowed${type ? ` in "${type}" type` : ""}.`,
+          `Data location can only be specified for array, struct, or mapping types, but "${modifier}" was given.`
+        ]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidFunctionModifierError"
+      });
+    }
+  };
+  InvalidAbiTypeParameterError = class InvalidAbiTypeParameterError2 extends BaseError {
+    constructor({ abiParameter }) {
+      super("Invalid ABI parameter.", {
+        details: JSON.stringify(abiParameter, null, 2),
+        metaMessages: ["ABI parameter type is invalid."]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidAbiTypeParameterError"
+      });
+    }
+  };
+});
+var InvalidSignatureError;
+var UnknownSignatureError;
+var InvalidStructSignatureError;
+var init_signature = __esm(() => {
+  init_errors();
+  InvalidSignatureError = class InvalidSignatureError2 extends BaseError {
+    constructor({ signature, type }) {
+      super(`Invalid ${type} signature.`, {
+        details: signature
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidSignatureError"
+      });
+    }
+  };
+  UnknownSignatureError = class UnknownSignatureError2 extends BaseError {
+    constructor({ signature }) {
+      super("Unknown signature.", {
+        details: signature
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "UnknownSignatureError"
+      });
+    }
+  };
+  InvalidStructSignatureError = class InvalidStructSignatureError2 extends BaseError {
+    constructor({ signature }) {
+      super("Invalid struct signature.", {
+        details: signature,
+        metaMessages: ["No properties exist."]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidStructSignatureError"
+      });
+    }
+  };
+});
+var CircularReferenceError;
+var init_struct = __esm(() => {
+  init_errors();
+  CircularReferenceError = class CircularReferenceError2 extends BaseError {
+    constructor({ type }) {
+      super("Circular reference detected.", {
+        metaMessages: [`Struct "${type}" is a circular reference.`]
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "CircularReferenceError"
+      });
+    }
+  };
+});
+var InvalidParenthesisError;
+var init_splitParameters = __esm(() => {
+  init_errors();
+  InvalidParenthesisError = class InvalidParenthesisError2 extends BaseError {
+    constructor({ current, depth }) {
+      super("Unbalanced parentheses.", {
+        metaMessages: [
+          `"${current.trim()}" has too many ${depth > 0 ? "opening" : "closing"} parentheses.`
+        ],
+        details: `Depth "${depth}"`
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "InvalidParenthesisError"
+      });
+    }
+  };
+});
+function getParameterCacheKey(param, type, structs) {
+  let structKey = "";
+  if (structs)
+    for (const struct of Object.entries(structs)) {
+      if (!struct)
+        continue;
+      let propertyKey = "";
+      for (const property of struct[1]) {
+        propertyKey += `[${property.type}${property.name ? `:${property.name}` : ""}]`;
+      }
+      structKey += `(${struct[0]}{${propertyKey}})`;
+    }
+  if (type)
+    return `${type}:${param}${structKey}`;
+  return param;
+}
+var parameterCache;
+var init_cache = __esm(() => {
+  parameterCache = new Map([
+    ["address", { type: "address" }],
+    ["bool", { type: "bool" }],
+    ["bytes", { type: "bytes" }],
+    ["bytes32", { type: "bytes32" }],
+    ["int", { type: "int256" }],
+    ["int256", { type: "int256" }],
+    ["string", { type: "string" }],
+    ["uint", { type: "uint256" }],
+    ["uint8", { type: "uint8" }],
+    ["uint16", { type: "uint16" }],
+    ["uint24", { type: "uint24" }],
+    ["uint32", { type: "uint32" }],
+    ["uint64", { type: "uint64" }],
+    ["uint96", { type: "uint96" }],
+    ["uint112", { type: "uint112" }],
+    ["uint160", { type: "uint160" }],
+    ["uint192", { type: "uint192" }],
+    ["uint256", { type: "uint256" }],
+    ["address owner", { type: "address", name: "owner" }],
+    ["address to", { type: "address", name: "to" }],
+    ["bool approved", { type: "bool", name: "approved" }],
+    ["bytes _data", { type: "bytes", name: "_data" }],
+    ["bytes data", { type: "bytes", name: "data" }],
+    ["bytes signature", { type: "bytes", name: "signature" }],
+    ["bytes32 hash", { type: "bytes32", name: "hash" }],
+    ["bytes32 r", { type: "bytes32", name: "r" }],
+    ["bytes32 root", { type: "bytes32", name: "root" }],
+    ["bytes32 s", { type: "bytes32", name: "s" }],
+    ["string name", { type: "string", name: "name" }],
+    ["string symbol", { type: "string", name: "symbol" }],
+    ["string tokenURI", { type: "string", name: "tokenURI" }],
+    ["uint tokenId", { type: "uint256", name: "tokenId" }],
+    ["uint8 v", { type: "uint8", name: "v" }],
+    ["uint256 balance", { type: "uint256", name: "balance" }],
+    ["uint256 tokenId", { type: "uint256", name: "tokenId" }],
+    ["uint256 value", { type: "uint256", name: "value" }],
+    [
+      "event:address indexed from",
+      { type: "address", name: "from", indexed: true }
+    ],
+    ["event:address indexed to", { type: "address", name: "to", indexed: true }],
+    [
+      "event:uint indexed tokenId",
+      { type: "uint256", name: "tokenId", indexed: true }
+    ],
+    [
+      "event:uint256 indexed tokenId",
+      { type: "uint256", name: "tokenId", indexed: true }
+    ]
+  ]);
+});
+function parseSignature(signature, structs = {}) {
+  if (isFunctionSignature(signature))
+    return parseFunctionSignature(signature, structs);
+  if (isEventSignature(signature))
+    return parseEventSignature(signature, structs);
+  if (isErrorSignature(signature))
+    return parseErrorSignature(signature, structs);
+  if (isConstructorSignature(signature))
+    return parseConstructorSignature(signature, structs);
+  if (isFallbackSignature(signature))
+    return parseFallbackSignature(signature);
+  if (isReceiveSignature(signature))
+    return {
+      type: "receive",
+      stateMutability: "payable"
+    };
+  throw new UnknownSignatureError({ signature });
+}
+function parseFunctionSignature(signature, structs = {}) {
+  const match = execFunctionSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "function" });
+  const inputParams = splitParameters(match.parameters);
+  const inputs = [];
+  const inputLength = inputParams.length;
+  for (let i2 = 0;i2 < inputLength; i2++) {
+    inputs.push(parseAbiParameter(inputParams[i2], {
+      modifiers: functionModifiers,
+      structs,
+      type: "function"
+    }));
+  }
+  const outputs = [];
+  if (match.returns) {
+    const outputParams = splitParameters(match.returns);
+    const outputLength = outputParams.length;
+    for (let i2 = 0;i2 < outputLength; i2++) {
+      outputs.push(parseAbiParameter(outputParams[i2], {
+        modifiers: functionModifiers,
+        structs,
+        type: "function"
+      }));
+    }
+  }
+  return {
+    name: match.name,
+    type: "function",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs,
+    outputs
+  };
+}
+function parseEventSignature(signature, structs = {}) {
+  const match = execEventSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "event" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], {
+      modifiers: eventModifiers,
+      structs,
+      type: "event"
+    }));
+  return { name: match.name, type: "event", inputs: abiParameters };
+}
+function parseErrorSignature(signature, structs = {}) {
+  const match = execErrorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "error" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "error" }));
+  return { name: match.name, type: "error", inputs: abiParameters };
+}
+function parseConstructorSignature(signature, structs = {}) {
+  const match = execConstructorSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "constructor" });
+  const params = splitParameters(match.parameters);
+  const abiParameters = [];
+  const length = params.length;
+  for (let i2 = 0;i2 < length; i2++)
+    abiParameters.push(parseAbiParameter(params[i2], { structs, type: "constructor" }));
+  return {
+    type: "constructor",
+    stateMutability: match.stateMutability ?? "nonpayable",
+    inputs: abiParameters
+  };
+}
+function parseFallbackSignature(signature) {
+  const match = execFallbackSignature(signature);
+  if (!match)
+    throw new InvalidSignatureError({ signature, type: "fallback" });
+  return {
+    type: "fallback",
+    stateMutability: match.stateMutability ?? "nonpayable"
+  };
+}
+function parseAbiParameter(param, options) {
+  const parameterCacheKey = getParameterCacheKey(param, options?.type, options?.structs);
+  if (parameterCache.has(parameterCacheKey))
+    return parameterCache.get(parameterCacheKey);
+  const isTuple = isTupleRegex.test(param);
+  const match = execTyped(isTuple ? abiParameterWithTupleRegex : abiParameterWithoutTupleRegex, param);
+  if (!match)
+    throw new InvalidParameterError({ param });
+  if (match.name && isSolidityKeyword(match.name))
+    throw new SolidityProtectedKeywordError({ param, name: match.name });
+  const name = match.name ? { name: match.name } : {};
+  const indexed = match.modifier === "indexed" ? { indexed: true } : {};
+  const structs = options?.structs ?? {};
+  let type;
+  let components = {};
+  if (isTuple) {
+    type = "tuple";
+    const params = splitParameters(match.type);
+    const components_ = [];
+    const length = params.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      components_.push(parseAbiParameter(params[i2], { structs }));
+    }
+    components = { components: components_ };
+  } else if (match.type in structs) {
+    type = "tuple";
+    components = { components: structs[match.type] };
+  } else if (dynamicIntegerRegex.test(match.type)) {
+    type = `${match.type}256`;
+  } else {
+    type = match.type;
+    if (!(options?.type === "struct") && !isSolidityType(type))
+      throw new UnknownSolidityTypeError({ type });
+  }
+  if (match.modifier) {
+    if (!options?.modifiers?.has?.(match.modifier))
+      throw new InvalidModifierError({
+        param,
+        type: options?.type,
+        modifier: match.modifier
+      });
+    if (functionModifiers.has(match.modifier) && !isValidDataLocation(type, !!match.array))
+      throw new InvalidFunctionModifierError({
+        param,
+        type: options?.type,
+        modifier: match.modifier
+      });
+  }
+  const abiParameter = {
+    type: `${type}${match.array ?? ""}`,
+    ...name,
+    ...indexed,
+    ...components
+  };
+  parameterCache.set(parameterCacheKey, abiParameter);
+  return abiParameter;
+}
+function splitParameters(params, result = [], current = "", depth = 0) {
+  const length = params.trim().length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const char = params[i2];
+    const tail = params.slice(i2 + 1);
+    switch (char) {
+      case ",":
+        return depth === 0 ? splitParameters(tail, [...result, current.trim()]) : splitParameters(tail, result, `${current}${char}`, depth);
+      case "(":
+        return splitParameters(tail, result, `${current}${char}`, depth + 1);
+      case ")":
+        return splitParameters(tail, result, `${current}${char}`, depth - 1);
+      default:
+        return splitParameters(tail, result, `${current}${char}`, depth);
+    }
+  }
+  if (current === "")
+    return result;
+  if (depth !== 0)
+    throw new InvalidParenthesisError({ current, depth });
+  result.push(current.trim());
+  return result;
+}
+function isSolidityType(type) {
+  return type === "address" || type === "bool" || type === "function" || type === "string" || bytesRegex.test(type) || integerRegex.test(type);
+}
+function isSolidityKeyword(name) {
+  return name === "address" || name === "bool" || name === "function" || name === "string" || name === "tuple" || bytesRegex.test(name) || integerRegex.test(name) || protectedKeywordsRegex.test(name);
+}
+function isValidDataLocation(type, isArray) {
+  return isArray || type === "bytes" || type === "string" || type === "tuple";
+}
+var abiParameterWithoutTupleRegex;
+var abiParameterWithTupleRegex;
+var dynamicIntegerRegex;
+var protectedKeywordsRegex;
+var init_utils = __esm(() => {
+  init_regex();
+  init_abiItem();
+  init_abiParameter();
+  init_signature();
+  init_splitParameters();
+  init_cache();
+  init_signatures();
+  abiParameterWithoutTupleRegex = /^(?<type>[a-zA-Z$_][a-zA-Z0-9$_]*)(?<array>(?:\[\d*?\])+?)?(?:\s(?<modifier>calldata|indexed|memory|storage{1}))?(?:\s(?<name>[a-zA-Z$_][a-zA-Z0-9$_]*))?$/;
+  abiParameterWithTupleRegex = /^\((?<type>.+?)\)(?<array>(?:\[\d*?\])+?)?(?:\s(?<modifier>calldata|indexed|memory|storage{1}))?(?:\s(?<name>[a-zA-Z$_][a-zA-Z0-9$_]*))?$/;
+  dynamicIntegerRegex = /^u?int$/;
+  protectedKeywordsRegex = /^(?:after|alias|anonymous|apply|auto|byte|calldata|case|catch|constant|copyof|default|defined|error|event|external|false|final|function|immutable|implements|in|indexed|inline|internal|let|mapping|match|memory|mutable|null|of|override|partial|private|promise|public|pure|reference|relocatable|return|returns|sizeof|static|storage|struct|super|supports|switch|this|true|try|typedef|typeof|var|view|virtual)$/;
+});
+function parseStructs(signatures) {
+  const shallowStructs = {};
+  const signaturesLength = signatures.length;
+  for (let i2 = 0;i2 < signaturesLength; i2++) {
+    const signature = signatures[i2];
+    if (!isStructSignature(signature))
+      continue;
+    const match = execStructSignature(signature);
+    if (!match)
+      throw new InvalidSignatureError({ signature, type: "struct" });
+    const properties = match.properties.split(";");
+    const components = [];
+    const propertiesLength = properties.length;
+    for (let k = 0;k < propertiesLength; k++) {
+      const property = properties[k];
+      const trimmed = property.trim();
+      if (!trimmed)
+        continue;
+      const abiParameter = parseAbiParameter(trimmed, {
+        type: "struct"
+      });
+      components.push(abiParameter);
+    }
+    if (!components.length)
+      throw new InvalidStructSignatureError({ signature });
+    shallowStructs[match.name] = components;
+  }
+  const resolvedStructs = {};
+  const entries = Object.entries(shallowStructs);
+  const entriesLength = entries.length;
+  for (let i2 = 0;i2 < entriesLength; i2++) {
+    const [name, parameters] = entries[i2];
+    resolvedStructs[name] = resolveStructs(parameters, shallowStructs);
+  }
+  return resolvedStructs;
+}
+function resolveStructs(abiParameters, structs, ancestors = new Set) {
+  const components = [];
+  const length = abiParameters.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const abiParameter = abiParameters[i2];
+    const isTuple = isTupleRegex.test(abiParameter.type);
+    if (isTuple)
+      components.push(abiParameter);
+    else {
+      const match = execTyped(typeWithoutTupleRegex, abiParameter.type);
+      if (!match?.type)
+        throw new InvalidAbiTypeParameterError({ abiParameter });
+      const { array, type } = match;
+      if (type in structs) {
+        if (ancestors.has(type))
+          throw new CircularReferenceError({ type });
+        components.push({
+          ...abiParameter,
+          type: `tuple${array ?? ""}`,
+          components: resolveStructs(structs[type] ?? [], structs, new Set([...ancestors, type]))
+        });
+      } else {
+        if (isSolidityType(type))
+          components.push(abiParameter);
+        else
+          throw new UnknownTypeError({ type });
+      }
+    }
+  }
+  return components;
+}
+var typeWithoutTupleRegex;
+var init_structs = __esm(() => {
+  init_regex();
+  init_abiItem();
+  init_abiParameter();
+  init_signature();
+  init_struct();
+  init_signatures();
+  init_utils();
+  typeWithoutTupleRegex = /^(?<type>[a-zA-Z$_][a-zA-Z0-9$_]*)(?<array>(?:\[\d*?\])+?)?$/;
+});
+function parseAbi(signatures) {
+  const structs = parseStructs(signatures);
+  const abi = [];
+  const length = signatures.length;
+  for (let i2 = 0;i2 < length; i2++) {
+    const signature = signatures[i2];
+    if (isStructSignature(signature))
+      continue;
+    abi.push(parseSignature(signature, structs));
+  }
+  return abi;
+}
+var init_parseAbi = __esm(() => {
+  init_signatures();
+  init_structs();
+  init_utils();
+});
+function parseAbiParameters(params) {
+  const abiParameters = [];
+  if (typeof params === "string") {
+    const parameters = splitParameters(params);
+    const length = parameters.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      abiParameters.push(parseAbiParameter(parameters[i2], { modifiers }));
+    }
+  } else {
+    const structs = parseStructs(params);
+    const length = params.length;
+    for (let i2 = 0;i2 < length; i2++) {
+      const signature = params[i2];
+      if (isStructSignature(signature))
+        continue;
+      const parameters = splitParameters(signature);
+      const length2 = parameters.length;
+      for (let k = 0;k < length2; k++) {
+        abiParameters.push(parseAbiParameter(parameters[k], { modifiers, structs }));
+      }
+    }
+  }
+  if (abiParameters.length === 0)
+    throw new InvalidAbiParametersError({ params });
+  return abiParameters;
+}
+var init_parseAbiParameters = __esm(() => {
+  init_abiParameter();
+  init_signatures();
+  init_structs();
+  init_utils();
+  init_utils();
+});
+var init_exports = __esm(() => {
+  init_formatAbiItem();
+  init_parseAbi();
+  init_parseAbiParameters();
+});
+function formatAbiItem2(abiItem, { includeName = false } = {}) {
+  if (abiItem.type !== "function" && abiItem.type !== "event" && abiItem.type !== "error")
+    throw new InvalidDefinitionTypeError(abiItem.type);
+  return `${abiItem.name}(${formatAbiParams(abiItem.inputs, { includeName })})`;
+}
+function formatAbiParams(params, { includeName = false } = {}) {
+  if (!params)
+    return "";
+  return params.map((param) => formatAbiParam(param, { includeName })).join(includeName ? ", " : ",");
+}
+function formatAbiParam(param, { includeName }) {
+  if (param.type.startsWith("tuple")) {
+    return `(${formatAbiParams(param.components, { includeName })})${param.type.slice("tuple".length)}`;
+  }
+  return param.type + (includeName && param.name ? ` ${param.name}` : "");
+}
+var init_formatAbiItem2 = __esm(() => {
+  init_abi();
+});
+function isHex(value2, { strict = true } = {}) {
+  if (!value2)
+    return false;
+  if (typeof value2 !== "string")
+    return false;
+  return strict ? /^0x[0-9a-fA-F]*$/.test(value2) : value2.startsWith("0x");
+}
+function size(value2) {
+  if (isHex(value2, { strict: false }))
+    return Math.ceil((value2.length - 2) / 2);
+  return value2.length;
+}
+var init_size = () => {};
+var version2 = "2.34.0";
+function walk(err, fn) {
+  if (fn?.(err))
+    return err;
+  if (err && typeof err === "object" && "cause" in err && err.cause !== undefined)
+    return walk(err.cause, fn);
+  return fn ? null : err;
+}
+var errorConfig;
+var BaseError2;
+var init_base = __esm(() => {
+  errorConfig = {
+    getDocsUrl: ({ docsBaseUrl, docsPath = "", docsSlug }) => docsPath ? `${docsBaseUrl ?? "https://viem.sh"}${docsPath}${docsSlug ? `#${docsSlug}` : ""}` : undefined,
+    version: `viem@${version2}`
+  };
+  BaseError2 = class BaseError22 extends Error {
+    constructor(shortMessage, args = {}) {
+      const details = (() => {
+        if (args.cause instanceof BaseError22)
+          return args.cause.details;
+        if (args.cause?.message)
+          return args.cause.message;
+        return args.details;
+      })();
+      const docsPath = (() => {
+        if (args.cause instanceof BaseError22)
+          return args.cause.docsPath || args.docsPath;
+        return args.docsPath;
+      })();
+      const docsUrl = errorConfig.getDocsUrl?.({ ...args, docsPath });
+      const message = [
+        shortMessage || "An error occurred.",
+        "",
+        ...args.metaMessages ? [...args.metaMessages, ""] : [],
+        ...docsUrl ? [`Docs: ${docsUrl}`] : [],
+        ...details ? [`Details: ${details}`] : [],
+        ...errorConfig.version ? [`Version: ${errorConfig.version}`] : []
+      ].join(`
+`);
+      super(message, args.cause ? { cause: args.cause } : undefined);
+      Object.defineProperty(this, "details", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "docsPath", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "metaMessages", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "shortMessage", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "version", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "name", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: "BaseError"
+      });
+      this.details = details;
+      this.docsPath = docsPath;
+      this.metaMessages = args.metaMessages;
+      this.name = args.name ?? this.name;
+      this.shortMessage = shortMessage;
+      this.version = version2;
+    }
+    walk(fn) {
+      return walk(this, fn);
+    }
+  };
+});
+var AbiDecodingDataSizeTooSmallError;
+var AbiDecodingZeroDataError;
+var AbiEncodingArrayLengthMismatchError;
+var AbiEncodingBytesSizeMismatchError;
+var AbiEncodingLengthMismatchError;
+var AbiEventSignatureEmptyTopicsError;
+var AbiEventSignatureNotFoundError;
+var AbiFunctionNotFoundError;
+var AbiFunctionOutputsNotFoundError;
+var AbiItemAmbiguityError;
+var DecodeLogDataMismatch;
+var DecodeLogTopicsMismatch;
+var InvalidAbiEncodingTypeError;
+var InvalidAbiDecodingTypeError;
+var InvalidArrayError;
+var InvalidDefinitionTypeError;
+var init_abi = __esm(() => {
+  init_formatAbiItem2();
+  init_size();
+  init_base();
+  AbiDecodingDataSizeTooSmallError = class AbiDecodingDataSizeTooSmallError2 extends BaseError2 {
+    constructor({ data, params, size: size2 }) {
+      super([`Data size of ${size2} bytes is too small for given parameters.`].join(`
+`), {
+        metaMessages: [
+          `Params: (${formatAbiParams(params, { includeName: true })})`,
+          `Data:   ${data} (${size2} bytes)`
+        ],
+        name: "AbiDecodingDataSizeTooSmallError"
+      });
+      Object.defineProperty(this, "data", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "params", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "size", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.data = data;
+      this.params = params;
+      this.size = size2;
+    }
+  };
+  AbiDecodingZeroDataError = class AbiDecodingZeroDataError2 extends BaseError2 {
+    constructor() {
+      super('Cannot decode zero data ("0x") with ABI parameters.', {
+        name: "AbiDecodingZeroDataError"
+      });
+    }
+  };
+  AbiEncodingArrayLengthMismatchError = class AbiEncodingArrayLengthMismatchError2 extends BaseError2 {
+    constructor({ expectedLength, givenLength, type }) {
+      super([
+        `ABI encoding array length mismatch for type ${type}.`,
+        `Expected length: ${expectedLength}`,
+        `Given length: ${givenLength}`
+      ].join(`
+`), { name: "AbiEncodingArrayLengthMismatchError" });
+    }
+  };
+  AbiEncodingBytesSizeMismatchError = class AbiEncodingBytesSizeMismatchError2 extends BaseError2 {
+    constructor({ expectedSize, value: value2 }) {
+      super(`Size of bytes "${value2}" (bytes${size(value2)}) does not match expected size (bytes${expectedSize}).`, { name: "AbiEncodingBytesSizeMismatchError" });
+    }
+  };
+  AbiEncodingLengthMismatchError = class AbiEncodingLengthMismatchError2 extends BaseError2 {
+    constructor({ expectedLength, givenLength }) {
+      super([
+        "ABI encoding params/values length mismatch.",
+        `Expected length (params): ${expectedLength}`,
+        `Given length (values): ${givenLength}`
+      ].join(`
+`), { name: "AbiEncodingLengthMismatchError" });
+    }
+  };
+  AbiEventSignatureEmptyTopicsError = class AbiEventSignatureEmptyTopicsError2 extends BaseError2 {
+    constructor({ docsPath }) {
+      super("Cannot extract event signature from empty topics.", {
+        docsPath,
+        name: "AbiEventSignatureEmptyTopicsError"
+      });
+    }
+  };
+  AbiEventSignatureNotFoundError = class AbiEventSignatureNotFoundError2 extends BaseError2 {
+    constructor(signature, { docsPath }) {
+      super([
+        `Encoded event signature "${signature}" not found on ABI.`,
+        "Make sure you are using the correct ABI and that the event exists on it.",
+        `You can look up the signature here: https://openchain.xyz/signatures?query=${signature}.`
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiEventSignatureNotFoundError"
+      });
+    }
+  };
+  AbiFunctionNotFoundError = class AbiFunctionNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath } = {}) {
+      super([
+        `Function ${functionName ? `"${functionName}" ` : ""}not found on ABI.`,
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionNotFoundError"
+      });
+    }
+  };
+  AbiFunctionOutputsNotFoundError = class AbiFunctionOutputsNotFoundError2 extends BaseError2 {
+    constructor(functionName, { docsPath }) {
+      super([
+        `Function "${functionName}" does not contain any \`outputs\` on ABI.`,
+        "Cannot decode function result without knowing what the parameter types are.",
+        "Make sure you are using the correct ABI and that the function exists on it."
+      ].join(`
+`), {
+        docsPath,
+        name: "AbiFunctionOutputsNotFoundError"
+      });
+    }
+  };
+  AbiItemAmbiguityError = class AbiItemAmbiguityError2 extends BaseError2 {
+    constructor(x, y) {
+      super("Found ambiguous types in overloaded ABI items.", {
+        metaMessages: [
+          `\`${x.type}\` in \`${formatAbiItem2(x.abiItem)}\`, and`,
+          `\`${y.type}\` in \`${formatAbiItem2(y.abiItem)}\``,
+          "",
+          "These types encode differently and cannot be distinguished at runtime.",
+          "Remove one of the ambiguous items in the ABI."
+        ],
+        name: "AbiItemAmbiguityError"
+      });
+    }
+  };
+  DecodeLogDataMismatch = class DecodeLogDataMismatch2 extends BaseError2 {
+    constructor({ abiItem, data, params, size: size2 }) {
+      super([
+        `Data size of ${size2} bytes is too small for non-indexed event parameters.`
+      ].join(`
+`), {
+        metaMessages: [
+          `Params: (${formatAbiParams(params, { includeName: true })})`,
+          `Data:   ${data} (${size2} bytes)`
+        ],
+        name: "DecodeLogDataMismatch"
+      });
+      Object.defineProperty(this, "abiItem", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "data", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "params", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      Object.defineProperty(this, "size", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.abiItem = abiItem;
+      this.data = data;
+      this.params = params;
+      this.size = size2;
+    }
+  };
+  DecodeLogTopicsMismatch = class DecodeLogTopicsMismatch2 extends BaseError2 {
+    constructor({ abiItem, param }) {
+      super([
+        `Expected a topic for indexed event parameter${param.name ? ` "${param.name}"` : ""} on event "${formatAbiItem2(abiItem, { includeName: true })}".`
+      ].join(`
+`), { name: "DecodeLogTopicsMismatch" });
+      Object.defineProperty(this, "abiItem", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.abiItem = abiItem;
+    }
+  };
+  InvalidAbiEncodingTypeError = class InvalidAbiEncodingTypeError2 extends BaseError2 {
+    constructor(type, { docsPath }) {
+      super([
+        `Type "${type}" is not a valid encoding type.`,
+        "Please provide a valid ABI type."
+      ].join(`
+`), { docsPath, name: "InvalidAbiEncodingType" });
+    }
+  };
+  InvalidAbiDecodingTypeError = class InvalidAbiDecodingTypeError2 extends BaseError2 {
+    constructor(type, { docsPath }) {
+      super([
+        `Type "${type}" is not a valid decoding type.`,
+        "Please provide a valid ABI type."
+      ].join(`
+`), { docsPath, name: "InvalidAbiDecodingType" });
+    }
+  };
+  InvalidArrayError = class InvalidArrayError2 extends BaseError2 {
+    constructor(value2) {
+      super([`Value "${value2}" is not a valid array.`].join(`
+`), {
+        name: "InvalidArrayError"
+      });
+    }
+  };
+  InvalidDefinitionTypeError = class InvalidDefinitionTypeError2 extends BaseError2 {
+    constructor(type) {
+      super([
+        `"${type}" is not a valid definition type.`,
+        'Valid types: "function", "event", "error"'
+      ].join(`
+`), { name: "InvalidDefinitionTypeError" });
+    }
+  };
+});
+var SliceOffsetOutOfBoundsError;
+var SizeExceedsPaddingSizeError;
+var init_data = __esm(() => {
+  init_base();
+  SliceOffsetOutOfBoundsError = class SliceOffsetOutOfBoundsError2 extends BaseError2 {
+    constructor({ offset, position, size: size2 }) {
+      super(`Slice ${position === "start" ? "starting" : "ending"} at offset "${offset}" is out-of-bounds (size: ${size2}).`, { name: "SliceOffsetOutOfBoundsError" });
+    }
+  };
+  SizeExceedsPaddingSizeError = class SizeExceedsPaddingSizeError2 extends BaseError2 {
+    constructor({ size: size2, targetSize, type }) {
+      super(`${type.charAt(0).toUpperCase()}${type.slice(1).toLowerCase()} size (${size2}) exceeds padding size (${targetSize}).`, { name: "SizeExceedsPaddingSizeError" });
+    }
+  };
+});
+function pad(hexOrBytes, { dir, size: size2 = 32 } = {}) {
+  if (typeof hexOrBytes === "string")
+    return padHex(hexOrBytes, { dir, size: size2 });
+  return padBytes(hexOrBytes, { dir, size: size2 });
+}
+function padHex(hex_, { dir, size: size2 = 32 } = {}) {
+  if (size2 === null)
+    return hex_;
+  const hex = hex_.replace("0x", "");
+  if (hex.length > size2 * 2)
+    throw new SizeExceedsPaddingSizeError({
+      size: Math.ceil(hex.length / 2),
+      targetSize: size2,
+      type: "hex"
+    });
+  return `0x${hex[dir === "right" ? "padEnd" : "padStart"](size2 * 2, "0")}`;
+}
+function padBytes(bytes, { dir, size: size2 = 32 } = {}) {
+  if (size2 === null)
+    return bytes;
+  if (bytes.length > size2)
+    throw new SizeExceedsPaddingSizeError({
+      size: bytes.length,
+      targetSize: size2,
+      type: "bytes"
+    });
+  const paddedBytes = new Uint8Array(size2);
+  for (let i2 = 0;i2 < size2; i2++) {
+    const padEnd = dir === "right";
+    paddedBytes[padEnd ? i2 : size2 - i2 - 1] = bytes[padEnd ? i2 : bytes.length - i2 - 1];
+  }
+  return paddedBytes;
+}
+var init_pad = __esm(() => {
+  init_data();
+});
+var IntegerOutOfRangeError;
+var InvalidBytesBooleanError;
+var SizeOverflowError;
+var init_encoding = __esm(() => {
+  init_base();
+  IntegerOutOfRangeError = class IntegerOutOfRangeError2 extends BaseError2 {
+    constructor({ max, min, signed, size: size2, value: value2 }) {
+      super(`Number "${value2}" is not in safe ${size2 ? `${size2 * 8}-bit ${signed ? "signed" : "unsigned"} ` : ""}integer range ${max ? `(${min} to ${max})` : `(above ${min})`}`, { name: "IntegerOutOfRangeError" });
+    }
+  };
+  InvalidBytesBooleanError = class InvalidBytesBooleanError2 extends BaseError2 {
+    constructor(bytes) {
+      super(`Bytes value "${bytes}" is not a valid boolean. The bytes array must contain a single byte of either a 0 or 1 value.`, {
+        name: "InvalidBytesBooleanError"
+      });
+    }
+  };
+  SizeOverflowError = class SizeOverflowError2 extends BaseError2 {
+    constructor({ givenSize, maxSize }) {
+      super(`Size cannot exceed ${maxSize} bytes. Given size: ${givenSize} bytes.`, { name: "SizeOverflowError" });
+    }
+  };
+});
+function trim(hexOrBytes, { dir = "left" } = {}) {
+  let data = typeof hexOrBytes === "string" ? hexOrBytes.replace("0x", "") : hexOrBytes;
+  let sliceLength = 0;
+  for (let i2 = 0;i2 < data.length - 1; i2++) {
+    if (data[dir === "left" ? i2 : data.length - i2 - 1].toString() === "0")
+      sliceLength++;
+    else
+      break;
+  }
+  data = dir === "left" ? data.slice(sliceLength) : data.slice(0, data.length - sliceLength);
+  if (typeof hexOrBytes === "string") {
+    if (data.length === 1 && dir === "right")
+      data = `${data}0`;
+    return `0x${data.length % 2 === 1 ? `0${data}` : data}`;
+  }
+  return data;
+}
+function assertSize2(hexOrBytes, { size: size2 }) {
+  if (size(hexOrBytes) > size2)
+    throw new SizeOverflowError({
+      givenSize: size(hexOrBytes),
+      maxSize: size2
+    });
+}
+function hexToBigInt(hex, opts = {}) {
+  const { signed } = opts;
+  if (opts.size)
+    assertSize2(hex, { size: opts.size });
+  const value2 = BigInt(hex);
+  if (!signed)
+    return value2;
+  const size2 = (hex.length - 2) / 2;
+  const max = (1n << BigInt(size2) * 8n - 1n) - 1n;
+  if (value2 <= max)
+    return value2;
+  return value2 - BigInt(`0x${"f".padStart(size2 * 2, "f")}`) - 1n;
+}
+function hexToNumber(hex, opts = {}) {
+  return Number(hexToBigInt(hex, opts));
+}
+var init_fromHex = __esm(() => {
+  init_encoding();
+  init_size();
+});
+function toHex(value2, opts = {}) {
+  if (typeof value2 === "number" || typeof value2 === "bigint")
+    return numberToHex(value2, opts);
+  if (typeof value2 === "string") {
+    return stringToHex(value2, opts);
+  }
+  if (typeof value2 === "boolean")
+    return boolToHex(value2, opts);
+  return bytesToHex2(value2, opts);
+}
+function boolToHex(value2, opts = {}) {
+  const hex = `0x${Number(value2)}`;
+  if (typeof opts.size === "number") {
+    assertSize2(hex, { size: opts.size });
+    return pad(hex, { size: opts.size });
+  }
+  return hex;
+}
+function bytesToHex2(value2, opts = {}) {
+  let string = "";
+  for (let i2 = 0;i2 < value2.length; i2++) {
+    string += hexes[value2[i2]];
+  }
+  const hex = `0x${string}`;
+  if (typeof opts.size === "number") {
+    assertSize2(hex, { size: opts.size });
+    return pad(hex, { dir: "right", size: opts.size });
+  }
+  return hex;
+}
+function numberToHex(value_, opts = {}) {
+  const { signed, size: size2 } = opts;
+  const value2 = BigInt(value_);
+  let maxValue;
+  if (size2) {
+    if (signed)
+      maxValue = (1n << BigInt(size2) * 8n - 1n) - 1n;
+    else
+      maxValue = 2n ** (BigInt(size2) * 8n) - 1n;
+  } else if (typeof value_ === "number") {
+    maxValue = BigInt(Number.MAX_SAFE_INTEGER);
+  }
+  const minValue = typeof maxValue === "bigint" && signed ? -maxValue - 1n : 0;
+  if (maxValue && value2 > maxValue || value2 < minValue) {
+    const suffix = typeof value_ === "bigint" ? "n" : "";
+    throw new IntegerOutOfRangeError({
+      max: maxValue ? `${maxValue}${suffix}` : undefined,
+      min: `${minValue}${suffix}`,
+      signed,
+      size: size2,
+      value: `${value_}${suffix}`
+    });
+  }
+  const hex = `0x${(signed && value2 < 0 ? (1n << BigInt(size2 * 8)) + BigInt(value2) : value2).toString(16)}`;
+  if (size2)
+    return pad(hex, { size: size2 });
+  return hex;
+}
+function stringToHex(value_, opts = {}) {
+  const value2 = encoder.encode(value_);
+  return bytesToHex2(value2, opts);
+}
+var hexes;
+var encoder;
+var init_toHex = __esm(() => {
+  init_encoding();
+  init_pad();
+  init_fromHex();
+  hexes = /* @__PURE__ */ Array.from({ length: 256 }, (_v, i2) => i2.toString(16).padStart(2, "0"));
+  encoder = /* @__PURE__ */ new TextEncoder;
+});
+function toBytes(value2, opts = {}) {
+  if (typeof value2 === "number" || typeof value2 === "bigint")
+    return numberToBytes(value2, opts);
+  if (typeof value2 === "boolean")
+    return boolToBytes(value2, opts);
+  if (isHex(value2))
+    return hexToBytes2(value2, opts);
+  return stringToBytes(value2, opts);
+}
+function boolToBytes(value2, opts = {}) {
+  const bytes = new Uint8Array(1);
+  bytes[0] = Number(value2);
+  if (typeof opts.size === "number") {
+    assertSize2(bytes, { size: opts.size });
+    return pad(bytes, { size: opts.size });
+  }
+  return bytes;
+}
+function charCodeToBase16(char) {
+  if (char >= charCodeMap.zero && char <= charCodeMap.nine)
+    return char - charCodeMap.zero;
+  if (char >= charCodeMap.A && char <= charCodeMap.F)
+    return char - (charCodeMap.A - 10);
+  if (char >= charCodeMap.a && char <= charCodeMap.f)
+    return char - (charCodeMap.a - 10);
+  return;
+}
+function hexToBytes2(hex_, opts = {}) {
+  let hex = hex_;
+  if (opts.size) {
+    assertSize2(hex, { size: opts.size });
+    hex = pad(hex, { dir: "right", size: opts.size });
+  }
+  let hexString = hex.slice(2);
+  if (hexString.length % 2)
+    hexString = `0${hexString}`;
+  const length = hexString.length / 2;
+  const bytes = new Uint8Array(length);
+  for (let index = 0, j = 0;index < length; index++) {
+    const nibbleLeft = charCodeToBase16(hexString.charCodeAt(j++));
+    const nibbleRight = charCodeToBase16(hexString.charCodeAt(j++));
+    if (nibbleLeft === undefined || nibbleRight === undefined) {
+      throw new BaseError2(`Invalid byte sequence ("${hexString[j - 2]}${hexString[j - 1]}" in "${hexString}").`);
+    }
+    bytes[index] = nibbleLeft * 16 + nibbleRight;
+  }
+  return bytes;
+}
+function numberToBytes(value2, opts) {
+  const hex = numberToHex(value2, opts);
+  return hexToBytes2(hex);
+}
+function stringToBytes(value2, opts = {}) {
+  const bytes = encoder2.encode(value2);
+  if (typeof opts.size === "number") {
+    assertSize2(bytes, { size: opts.size });
+    return pad(bytes, { dir: "right", size: opts.size });
+  }
+  return bytes;
+}
+var encoder2;
+var charCodeMap;
+var init_toBytes = __esm(() => {
+  init_base();
+  init_pad();
+  init_fromHex();
+  init_toHex();
+  encoder2 = /* @__PURE__ */ new TextEncoder;
+  charCodeMap = {
+    zero: 48,
+    nine: 57,
+    A: 65,
+    F: 70,
+    a: 97,
+    f: 102
+  };
+});
+function fromBig(n, le = false) {
+  if (le)
+    return { h: Number(n & U32_MASK64), l: Number(n >> _32n & U32_MASK64) };
+  return { h: Number(n >> _32n & U32_MASK64) | 0, l: Number(n & U32_MASK64) | 0 };
+}
+function split(lst, le = false) {
+  const len2 = lst.length;
+  let Ah = new Uint32Array(len2);
+  let Al = new Uint32Array(len2);
+  for (let i2 = 0;i2 < len2; i2++) {
+    const { h, l } = fromBig(lst[i2], le);
+    [Ah[i2], Al[i2]] = [h, l];
+  }
+  return [Ah, Al];
+}
+var U32_MASK64;
+var _32n;
+var rotlSH = (h, l, s) => h << s | l >>> 32 - s;
+var rotlSL = (h, l, s) => l << s | h >>> 32 - s;
+var rotlBH = (h, l, s) => l << s - 32 | h >>> 64 - s;
+var rotlBL = (h, l, s) => h << s - 32 | l >>> 64 - s;
+var init__u64 = __esm(() => {
+  U32_MASK64 = /* @__PURE__ */ BigInt(2 ** 32 - 1);
+  _32n = /* @__PURE__ */ BigInt(32);
+});
+function isBytes(a) {
+  return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
+}
+function anumber(n) {
+  if (!Number.isSafeInteger(n) || n < 0)
+    throw new Error("positive integer expected, got " + n);
+}
+function abytes(b, ...lengths) {
+  if (!isBytes(b))
+    throw new Error("Uint8Array expected");
+  if (lengths.length > 0 && !lengths.includes(b.length))
+    throw new Error("Uint8Array expected of length " + lengths + ", got length=" + b.length);
+}
+function aexists(instance, checkFinished = true) {
+  if (instance.destroyed)
+    throw new Error("Hash instance has been destroyed");
+  if (checkFinished && instance.finished)
+    throw new Error("Hash#digest() has already been called");
+}
+function aoutput(out, instance) {
+  abytes(out);
+  const min = instance.outputLen;
+  if (out.length < min) {
+    throw new Error("digestInto() expects output buffer of length at least " + min);
+  }
+}
+function u32(arr) {
+  return new Uint32Array(arr.buffer, arr.byteOffset, Math.floor(arr.byteLength / 4));
+}
+function clean(...arrays) {
+  for (let i2 = 0;i2 < arrays.length; i2++) {
+    arrays[i2].fill(0);
+  }
+}
+function byteSwap(word) {
+  return word << 24 & 4278190080 | word << 8 & 16711680 | word >>> 8 & 65280 | word >>> 24 & 255;
+}
+function byteSwap32(arr) {
+  for (let i2 = 0;i2 < arr.length; i2++) {
+    arr[i2] = byteSwap(arr[i2]);
+  }
+  return arr;
+}
+function utf8ToBytes2(str) {
+  if (typeof str !== "string")
+    throw new Error("string expected");
+  return new Uint8Array(new TextEncoder().encode(str));
+}
+function toBytes2(data) {
+  if (typeof data === "string")
+    data = utf8ToBytes2(data);
+  abytes(data);
+  return data;
+}
+
+class Hash {
+}
+function createHasher(hashCons) {
+  const hashC = (msg) => hashCons().update(toBytes2(msg)).digest();
+  const tmp = hashCons();
+  hashC.outputLen = tmp.outputLen;
+  hashC.blockLen = tmp.blockLen;
+  hashC.create = () => hashCons();
+  return hashC;
+}
+var isLE;
+var swap32IfBE;
+var init_utils2 = __esm(() => {
+  /*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+  isLE = /* @__PURE__ */ (() => new Uint8Array(new Uint32Array([287454020]).buffer)[0] === 68)();
+  swap32IfBE = isLE ? (u) => u : byteSwap32;
+});
+function keccakP(s, rounds = 24) {
+  const B = new Uint32Array(5 * 2);
+  for (let round = 24 - rounds;round < 24; round++) {
+    for (let x = 0;x < 10; x++)
+      B[x] = s[x] ^ s[x + 10] ^ s[x + 20] ^ s[x + 30] ^ s[x + 40];
+    for (let x = 0;x < 10; x += 2) {
+      const idx1 = (x + 8) % 10;
+      const idx0 = (x + 2) % 10;
+      const B0 = B[idx0];
+      const B1 = B[idx0 + 1];
+      const Th = rotlH(B0, B1, 1) ^ B[idx1];
+      const Tl = rotlL(B0, B1, 1) ^ B[idx1 + 1];
+      for (let y = 0;y < 50; y += 10) {
+        s[x + y] ^= Th;
+        s[x + y + 1] ^= Tl;
+      }
+    }
+    let curH = s[2];
+    let curL = s[3];
+    for (let t = 0;t < 24; t++) {
+      const shift = SHA3_ROTL[t];
+      const Th = rotlH(curH, curL, shift);
+      const Tl = rotlL(curH, curL, shift);
+      const PI = SHA3_PI[t];
+      curH = s[PI];
+      curL = s[PI + 1];
+      s[PI] = Th;
+      s[PI + 1] = Tl;
+    }
+    for (let y = 0;y < 50; y += 10) {
+      for (let x = 0;x < 10; x++)
+        B[x] = s[y + x];
+      for (let x = 0;x < 10; x++)
+        s[y + x] ^= ~B[(x + 2) % 10] & B[(x + 4) % 10];
+    }
+    s[0] ^= SHA3_IOTA_H[round];
+    s[1] ^= SHA3_IOTA_L[round];
+  }
+  clean(B);
+}
+var _0n;
+var _1n;
+var _2n;
+var _7n;
+var _256n;
+var _0x71n;
+var SHA3_PI;
+var SHA3_ROTL;
+var _SHA3_IOTA;
+var IOTAS;
+var SHA3_IOTA_H;
+var SHA3_IOTA_L;
+var rotlH = (h, l, s) => s > 32 ? rotlBH(h, l, s) : rotlSH(h, l, s);
+var rotlL = (h, l, s) => s > 32 ? rotlBL(h, l, s) : rotlSL(h, l, s);
+var Keccak;
+var gen = (suffix, blockLen, outputLen) => createHasher(() => new Keccak(blockLen, suffix, outputLen));
+var keccak_256;
+var init_sha3 = __esm(() => {
+  init__u64();
+  init_utils2();
+  _0n = BigInt(0);
+  _1n = BigInt(1);
+  _2n = BigInt(2);
+  _7n = BigInt(7);
+  _256n = BigInt(256);
+  _0x71n = BigInt(113);
+  SHA3_PI = [];
+  SHA3_ROTL = [];
+  _SHA3_IOTA = [];
+  for (let round = 0, R = _1n, x = 1, y = 0;round < 24; round++) {
+    [x, y] = [y, (2 * x + 3 * y) % 5];
+    SHA3_PI.push(2 * (5 * y + x));
+    SHA3_ROTL.push((round + 1) * (round + 2) / 2 % 64);
+    let t = _0n;
+    for (let j = 0;j < 7; j++) {
+      R = (R << _1n ^ (R >> _7n) * _0x71n) % _256n;
+      if (R & _2n)
+        t ^= _1n << (_1n << /* @__PURE__ */ BigInt(j)) - _1n;
+    }
+    _SHA3_IOTA.push(t);
+  }
+  IOTAS = split(_SHA3_IOTA, true);
+  SHA3_IOTA_H = IOTAS[0];
+  SHA3_IOTA_L = IOTAS[1];
+  Keccak = class Keccak2 extends Hash {
+    constructor(blockLen, suffix, outputLen, enableXOF = false, rounds = 24) {
+      super();
+      this.pos = 0;
+      this.posOut = 0;
+      this.finished = false;
+      this.destroyed = false;
+      this.enableXOF = false;
+      this.blockLen = blockLen;
+      this.suffix = suffix;
+      this.outputLen = outputLen;
+      this.enableXOF = enableXOF;
+      this.rounds = rounds;
+      anumber(outputLen);
+      if (!(0 < blockLen && blockLen < 200))
+        throw new Error("only keccak-f1600 function is supported");
+      this.state = new Uint8Array(200);
+      this.state32 = u32(this.state);
+    }
+    clone() {
+      return this._cloneInto();
+    }
+    keccak() {
+      swap32IfBE(this.state32);
+      keccakP(this.state32, this.rounds);
+      swap32IfBE(this.state32);
+      this.posOut = 0;
+      this.pos = 0;
+    }
+    update(data) {
+      aexists(this);
+      data = toBytes2(data);
+      abytes(data);
+      const { blockLen, state } = this;
+      const len2 = data.length;
+      for (let pos = 0;pos < len2; ) {
+        const take = Math.min(blockLen - this.pos, len2 - pos);
+        for (let i2 = 0;i2 < take; i2++)
+          state[this.pos++] ^= data[pos++];
+        if (this.pos === blockLen)
+          this.keccak();
+      }
+      return this;
+    }
+    finish() {
+      if (this.finished)
+        return;
+      this.finished = true;
+      const { state, suffix, pos, blockLen } = this;
+      state[pos] ^= suffix;
+      if ((suffix & 128) !== 0 && pos === blockLen - 1)
+        this.keccak();
+      state[blockLen - 1] ^= 128;
+      this.keccak();
+    }
+    writeInto(out) {
+      aexists(this, false);
+      abytes(out);
+      this.finish();
+      const bufferOut = this.state;
+      const { blockLen } = this;
+      for (let pos = 0, len2 = out.length;pos < len2; ) {
+        if (this.posOut >= blockLen)
+          this.keccak();
+        const take = Math.min(blockLen - this.posOut, len2 - pos);
+        out.set(bufferOut.subarray(this.posOut, this.posOut + take), pos);
+        this.posOut += take;
+        pos += take;
+      }
+      return out;
+    }
+    xofInto(out) {
+      if (!this.enableXOF)
+        throw new Error("XOF is not possible for this instance");
+      return this.writeInto(out);
+    }
+    xof(bytes) {
+      anumber(bytes);
+      return this.xofInto(new Uint8Array(bytes));
+    }
+    digestInto(out) {
+      aoutput(out, this);
+      if (this.finished)
+        throw new Error("digest() was already called");
+      this.writeInto(out);
+      this.destroy();
+      return out;
+    }
+    digest() {
+      return this.digestInto(new Uint8Array(this.outputLen));
+    }
+    destroy() {
+      this.destroyed = true;
+      clean(this.state);
+    }
+    _cloneInto(to) {
+      const { blockLen, suffix, outputLen, rounds, enableXOF } = this;
+      to || (to = new Keccak2(blockLen, suffix, outputLen, enableXOF, rounds));
+      to.state32.set(this.state32);
+      to.pos = this.pos;
+      to.posOut = this.posOut;
+      to.finished = this.finished;
+      to.rounds = rounds;
+      to.suffix = suffix;
+      to.outputLen = outputLen;
+      to.enableXOF = enableXOF;
+      to.destroyed = this.destroyed;
+      return to;
+    }
+  };
+  keccak_256 = /* @__PURE__ */ (() => gen(1, 136, 256 / 8))();
+});
+function keccak256(value2, to_) {
+  const to = to_ || "hex";
+  const bytes = keccak_256(isHex(value2, { strict: false }) ? toBytes(value2) : value2);
+  if (to === "bytes")
+    return bytes;
+  return toHex(bytes);
+}
+var init_keccak256 = __esm(() => {
+  init_sha3();
+  init_toBytes();
+  init_toHex();
+});
+function hashSignature(sig) {
+  return hash(sig);
+}
+var hash = (value2) => keccak256(toBytes(value2));
+var init_hashSignature = __esm(() => {
+  init_toBytes();
+  init_keccak256();
+});
+function normalizeSignature(signature) {
+  let active = true;
+  let current = "";
+  let level = 0;
+  let result = "";
+  let valid = false;
+  for (let i2 = 0;i2 < signature.length; i2++) {
+    const char = signature[i2];
+    if (["(", ")", ","].includes(char))
+      active = true;
+    if (char === "(")
+      level++;
+    if (char === ")")
+      level--;
+    if (!active)
+      continue;
+    if (level === 0) {
+      if (char === " " && ["event", "function", ""].includes(result))
+        result = "";
+      else {
+        result += char;
+        if (char === ")") {
+          valid = true;
+          break;
+        }
+      }
+      continue;
+    }
+    if (char === " ") {
+      if (signature[i2 - 1] !== "," && current !== "," && current !== ",(") {
+        current = "";
+        active = false;
+      }
+      continue;
+    }
+    result += char;
+    current += char;
+  }
+  if (!valid)
+    throw new BaseError2("Unable to normalize signature.");
+  return result;
+}
+var init_normalizeSignature = __esm(() => {
+  init_base();
+});
+var toSignature = (def) => {
+  const def_ = (() => {
+    if (typeof def === "string")
+      return def;
+    return formatAbiItem(def);
+  })();
+  return normalizeSignature(def_);
+};
+var init_toSignature = __esm(() => {
+  init_exports();
+  init_normalizeSignature();
+});
+function toSignatureHash(fn) {
+  return hashSignature(toSignature(fn));
+}
+var init_toSignatureHash = __esm(() => {
+  init_hashSignature();
+  init_toSignature();
+});
+var toEventSelector;
+var init_toEventSelector = __esm(() => {
+  init_toSignatureHash();
+  toEventSelector = toSignatureHash;
+});
+var InvalidAddressError;
+var init_address = __esm(() => {
+  init_base();
+  InvalidAddressError = class InvalidAddressError2 extends BaseError2 {
+    constructor({ address }) {
+      super(`Address "${address}" is invalid.`, {
+        metaMessages: [
+          "- Address must be a hex value of 20 bytes (40 hex characters).",
+          "- Address must match its checksum counterpart."
+        ],
+        name: "InvalidAddressError"
+      });
+    }
+  };
+});
+var LruMap;
+var init_lru = __esm(() => {
+  LruMap = class LruMap2 extends Map {
+    constructor(size2) {
+      super();
+      Object.defineProperty(this, "maxSize", {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+      this.maxSize = size2;
+    }
+    get(key) {
+      const value2 = super.get(key);
+      if (super.has(key) && value2 !== undefined) {
+        this.delete(key);
+        super.set(key, value2);
+      }
+      return value2;
+    }
+    set(key, value2) {
+      super.set(key, value2);
+      if (this.maxSize && this.size > this.maxSize) {
+        const firstKey = this.keys().next().value;
+        if (firstKey)
+          this.delete(firstKey);
+      }
+      return this;
+    }
+  };
+});
+function checksumAddress(address_, chainId) {
+  if (checksumAddressCache.has(`${address_}.${chainId}`))
+    return checksumAddressCache.get(`${address_}.${chainId}`);
+  const hexAddress = chainId ? `${chainId}${address_.toLowerCase()}` : address_.substring(2).toLowerCase();
+  const hash2 = keccak256(stringToBytes(hexAddress), "bytes");
+  const address = (chainId ? hexAddress.substring(`${chainId}0x`.length) : hexAddress).split("");
+  for (let i2 = 0;i2 < 40; i2 += 2) {
+    if (hash2[i2 >> 1] >> 4 >= 8 && address[i2]) {
+      address[i2] = address[i2].toUpperCase();
+    }
+    if ((hash2[i2 >> 1] & 15) >= 8 && address[i2 + 1]) {
+      address[i2 + 1] = address[i2 + 1].toUpperCase();
+    }
+  }
+  const result = `0x${address.join("")}`;
+  checksumAddressCache.set(`${address_}.${chainId}`, result);
+  return result;
+}
+var checksumAddressCache;
+var init_getAddress = __esm(() => {
+  init_toBytes();
+  init_keccak256();
+  init_lru();
+  checksumAddressCache = /* @__PURE__ */ new LruMap(8192);
+});
+function isAddress(address, options) {
+  const { strict = true } = options ?? {};
+  const cacheKey = `${address}.${strict}`;
+  if (isAddressCache.has(cacheKey))
+    return isAddressCache.get(cacheKey);
+  const result = (() => {
+    if (!addressRegex.test(address))
+      return false;
+    if (address.toLowerCase() === address)
+      return true;
+    if (strict)
+      return checksumAddress(address) === address;
+    return true;
+  })();
+  isAddressCache.set(cacheKey, result);
+  return result;
+}
+var addressRegex;
+var isAddressCache;
+var init_isAddress = __esm(() => {
+  init_lru();
+  init_getAddress();
+  addressRegex = /^0x[a-fA-F0-9]{40}$/;
+  isAddressCache = /* @__PURE__ */ new LruMap(8192);
+});
+function concat(values) {
+  if (typeof values[0] === "string")
+    return concatHex(values);
+  return concatBytes(values);
+}
+function concatBytes(values) {
+  let length = 0;
+  for (const arr of values) {
+    length += arr.length;
+  }
+  const result = new Uint8Array(length);
+  let offset = 0;
+  for (const arr of values) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+function concatHex(values) {
+  return `0x${values.reduce((acc, x) => acc + x.replace("0x", ""), "")}`;
+}
+function slice(value2, start, end, { strict } = {}) {
+  if (isHex(value2, { strict: false }))
+    return sliceHex(value2, start, end, {
+      strict
+    });
+  return sliceBytes(value2, start, end, {
+    strict
+  });
+}
+function assertStartOffset(value2, start) {
+  if (typeof start === "number" && start > 0 && start > size(value2) - 1)
+    throw new SliceOffsetOutOfBoundsError({
+      offset: start,
+      position: "start",
+      size: size(value2)
+    });
+}
+function assertEndOffset(value2, start, end) {
+  if (typeof start === "number" && typeof end === "number" && size(value2) !== end - start) {
+    throw new SliceOffsetOutOfBoundsError({
+      offset: end,
+      position: "end",
+      size: size(value2)
+    });
+  }
+}
+function sliceBytes(value_, start, end, { strict } = {}) {
+  assertStartOffset(value_, start);
+  const value2 = value_.slice(start, end);
+  if (strict)
+    assertEndOffset(value2, start, end);
+  return value2;
+}
+function sliceHex(value_, start, end, { strict } = {}) {
+  assertStartOffset(value_, start);
+  const value2 = `0x${value_.replace("0x", "").slice((start ?? 0) * 2, (end ?? value_.length) * 2)}`;
+  if (strict)
+    assertEndOffset(value2, start, end);
+  return value2;
+}
+var init_slice = __esm(() => {
+  init_data();
+  init_size();
+});
+var integerRegex2;
+var init_regex2 = __esm(() => {
+  integerRegex2 = /^(u?int)(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/;
+});
+function encodeAbiParameters(params, values) {
+  if (params.length !== values.length)
+    throw new AbiEncodingLengthMismatchError({
+      expectedLength: params.length,
+      givenLength: values.length
+    });
+  const preparedParams = prepareParams({
+    params,
+    values
+  });
+  const data = encodeParams(preparedParams);
+  if (data.length === 0)
+    return "0x";
+  return data;
+}
+function prepareParams({ params, values }) {
+  const preparedParams = [];
+  for (let i2 = 0;i2 < params.length; i2++) {
+    preparedParams.push(prepareParam({ param: params[i2], value: values[i2] }));
+  }
+  return preparedParams;
+}
+function prepareParam({ param, value: value2 }) {
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents) {
+    const [length, type] = arrayComponents;
+    return encodeArray(value2, { length, param: { ...param, type } });
+  }
+  if (param.type === "tuple") {
+    return encodeTuple(value2, {
+      param
+    });
+  }
+  if (param.type === "address") {
+    return encodeAddress(value2);
+  }
+  if (param.type === "bool") {
+    return encodeBool(value2);
+  }
+  if (param.type.startsWith("uint") || param.type.startsWith("int")) {
+    const signed = param.type.startsWith("int");
+    const [, , size2 = "256"] = integerRegex2.exec(param.type) ?? [];
+    return encodeNumber(value2, {
+      signed,
+      size: Number(size2)
+    });
+  }
+  if (param.type.startsWith("bytes")) {
+    return encodeBytes(value2, { param });
+  }
+  if (param.type === "string") {
+    return encodeString(value2);
+  }
+  throw new InvalidAbiEncodingTypeError(param.type, {
+    docsPath: "/docs/contract/encodeAbiParameters"
+  });
+}
+function encodeParams(preparedParams) {
+  let staticSize = 0;
+  for (let i2 = 0;i2 < preparedParams.length; i2++) {
+    const { dynamic, encoded } = preparedParams[i2];
+    if (dynamic)
+      staticSize += 32;
+    else
+      staticSize += size(encoded);
+  }
+  const staticParams = [];
+  const dynamicParams = [];
+  let dynamicSize = 0;
+  for (let i2 = 0;i2 < preparedParams.length; i2++) {
+    const { dynamic, encoded } = preparedParams[i2];
+    if (dynamic) {
+      staticParams.push(numberToHex(staticSize + dynamicSize, { size: 32 }));
+      dynamicParams.push(encoded);
+      dynamicSize += size(encoded);
+    } else {
+      staticParams.push(encoded);
+    }
+  }
+  return concat([...staticParams, ...dynamicParams]);
+}
+function encodeAddress(value2) {
+  if (!isAddress(value2))
+    throw new InvalidAddressError({ address: value2 });
+  return { dynamic: false, encoded: padHex(value2.toLowerCase()) };
+}
+function encodeArray(value2, { length, param }) {
+  const dynamic = length === null;
+  if (!Array.isArray(value2))
+    throw new InvalidArrayError(value2);
+  if (!dynamic && value2.length !== length)
+    throw new AbiEncodingArrayLengthMismatchError({
+      expectedLength: length,
+      givenLength: value2.length,
+      type: `${param.type}[${length}]`
+    });
+  let dynamicChild = false;
+  const preparedParams = [];
+  for (let i2 = 0;i2 < value2.length; i2++) {
+    const preparedParam = prepareParam({ param, value: value2[i2] });
+    if (preparedParam.dynamic)
+      dynamicChild = true;
+    preparedParams.push(preparedParam);
+  }
+  if (dynamic || dynamicChild) {
+    const data = encodeParams(preparedParams);
+    if (dynamic) {
+      const length2 = numberToHex(preparedParams.length, { size: 32 });
+      return {
+        dynamic: true,
+        encoded: preparedParams.length > 0 ? concat([length2, data]) : length2
+      };
+    }
+    if (dynamicChild)
+      return { dynamic: true, encoded: data };
+  }
+  return {
+    dynamic: false,
+    encoded: concat(preparedParams.map(({ encoded }) => encoded))
+  };
+}
+function encodeBytes(value2, { param }) {
+  const [, paramSize] = param.type.split("bytes");
+  const bytesSize = size(value2);
+  if (!paramSize) {
+    let value_ = value2;
+    if (bytesSize % 32 !== 0)
+      value_ = padHex(value_, {
+        dir: "right",
+        size: Math.ceil((value2.length - 2) / 2 / 32) * 32
+      });
+    return {
+      dynamic: true,
+      encoded: concat([padHex(numberToHex(bytesSize, { size: 32 })), value_])
+    };
+  }
+  if (bytesSize !== Number.parseInt(paramSize))
+    throw new AbiEncodingBytesSizeMismatchError({
+      expectedSize: Number.parseInt(paramSize),
+      value: value2
+    });
+  return { dynamic: false, encoded: padHex(value2, { dir: "right" }) };
+}
+function encodeBool(value2) {
+  if (typeof value2 !== "boolean")
+    throw new BaseError2(`Invalid boolean value: "${value2}" (type: ${typeof value2}). Expected: \`true\` or \`false\`.`);
+  return { dynamic: false, encoded: padHex(boolToHex(value2)) };
+}
+function encodeNumber(value2, { signed, size: size2 = 256 }) {
+  if (typeof size2 === "number") {
+    const max = 2n ** (BigInt(size2) - (signed ? 1n : 0n)) - 1n;
+    const min = signed ? -max - 1n : 0n;
+    if (value2 > max || value2 < min)
+      throw new IntegerOutOfRangeError({
+        max: max.toString(),
+        min: min.toString(),
+        signed,
+        size: size2 / 8,
+        value: value2.toString()
+      });
+  }
+  return {
+    dynamic: false,
+    encoded: numberToHex(value2, {
+      size: 32,
+      signed
+    })
+  };
+}
+function encodeString(value2) {
+  const hexValue = stringToHex(value2);
+  const partsLength = Math.ceil(size(hexValue) / 32);
+  const parts = [];
+  for (let i2 = 0;i2 < partsLength; i2++) {
+    parts.push(padHex(slice(hexValue, i2 * 32, (i2 + 1) * 32), {
+      dir: "right"
+    }));
+  }
+  return {
+    dynamic: true,
+    encoded: concat([
+      padHex(numberToHex(size(hexValue), { size: 32 })),
+      ...parts
+    ])
+  };
+}
+function encodeTuple(value2, { param }) {
+  let dynamic = false;
+  const preparedParams = [];
+  for (let i2 = 0;i2 < param.components.length; i2++) {
+    const param_ = param.components[i2];
+    const index = Array.isArray(value2) ? i2 : param_.name;
+    const preparedParam = prepareParam({
+      param: param_,
+      value: value2[index]
+    });
+    preparedParams.push(preparedParam);
+    if (preparedParam.dynamic)
+      dynamic = true;
+  }
+  return {
+    dynamic,
+    encoded: dynamic ? encodeParams(preparedParams) : concat(preparedParams.map(({ encoded }) => encoded))
+  };
+}
+function getArrayComponents(type) {
+  const matches = type.match(/^(.*)\[(\d+)?\]$/);
+  return matches ? [matches[2] ? Number(matches[2]) : null, matches[1]] : undefined;
+}
+var init_encodeAbiParameters = __esm(() => {
+  init_abi();
+  init_address();
+  init_base();
+  init_encoding();
+  init_isAddress();
+  init_pad();
+  init_size();
+  init_slice();
+  init_toHex();
+  init_regex2();
+});
+var toFunctionSelector = (fn) => slice(toSignatureHash(fn), 0, 4);
+var init_toFunctionSelector = __esm(() => {
+  init_slice();
+  init_toSignatureHash();
+});
+function getAbiItem(parameters) {
+  const { abi, args = [], name } = parameters;
+  const isSelector = isHex(name, { strict: false });
+  const abiItems = abi.filter((abiItem) => {
+    if (isSelector) {
+      if (abiItem.type === "function")
+        return toFunctionSelector(abiItem) === name;
+      if (abiItem.type === "event")
+        return toEventSelector(abiItem) === name;
+      return false;
+    }
+    return "name" in abiItem && abiItem.name === name;
+  });
+  if (abiItems.length === 0)
+    return;
+  if (abiItems.length === 1)
+    return abiItems[0];
+  let matchedAbiItem = undefined;
+  for (const abiItem of abiItems) {
+    if (!("inputs" in abiItem))
+      continue;
+    if (!args || args.length === 0) {
+      if (!abiItem.inputs || abiItem.inputs.length === 0)
+        return abiItem;
+      continue;
+    }
+    if (!abiItem.inputs)
+      continue;
+    if (abiItem.inputs.length === 0)
+      continue;
+    if (abiItem.inputs.length !== args.length)
+      continue;
+    const matched = args.every((arg, index) => {
+      const abiParameter = "inputs" in abiItem && abiItem.inputs[index];
+      if (!abiParameter)
+        return false;
+      return isArgOfType(arg, abiParameter);
+    });
+    if (matched) {
+      if (matchedAbiItem && "inputs" in matchedAbiItem && matchedAbiItem.inputs) {
+        const ambiguousTypes = getAmbiguousTypes(abiItem.inputs, matchedAbiItem.inputs, args);
+        if (ambiguousTypes)
+          throw new AbiItemAmbiguityError({
+            abiItem,
+            type: ambiguousTypes[0]
+          }, {
+            abiItem: matchedAbiItem,
+            type: ambiguousTypes[1]
+          });
+      }
+      matchedAbiItem = abiItem;
+    }
+  }
+  if (matchedAbiItem)
+    return matchedAbiItem;
+  return abiItems[0];
+}
+function isArgOfType(arg, abiParameter) {
+  const argType = typeof arg;
+  const abiParameterType = abiParameter.type;
+  switch (abiParameterType) {
+    case "address":
+      return isAddress(arg, { strict: false });
+    case "bool":
+      return argType === "boolean";
+    case "function":
+      return argType === "string";
+    case "string":
+      return argType === "string";
+    default: {
+      if (abiParameterType === "tuple" && "components" in abiParameter)
+        return Object.values(abiParameter.components).every((component, index) => {
+          return isArgOfType(Object.values(arg)[index], component);
+        });
+      if (/^u?int(8|16|24|32|40|48|56|64|72|80|88|96|104|112|120|128|136|144|152|160|168|176|184|192|200|208|216|224|232|240|248|256)?$/.test(abiParameterType))
+        return argType === "number" || argType === "bigint";
+      if (/^bytes([1-9]|1[0-9]|2[0-9]|3[0-2])?$/.test(abiParameterType))
+        return argType === "string" || arg instanceof Uint8Array;
+      if (/[a-z]+[1-9]{0,3}(\[[0-9]{0,}\])+$/.test(abiParameterType)) {
+        return Array.isArray(arg) && arg.every((x) => isArgOfType(x, {
+          ...abiParameter,
+          type: abiParameterType.replace(/(\[[0-9]{0,}\])$/, "")
+        }));
+      }
+      return false;
+    }
+  }
+}
+function getAmbiguousTypes(sourceParameters, targetParameters, args) {
+  for (const parameterIndex in sourceParameters) {
+    const sourceParameter = sourceParameters[parameterIndex];
+    const targetParameter = targetParameters[parameterIndex];
+    if (sourceParameter.type === "tuple" && targetParameter.type === "tuple" && "components" in sourceParameter && "components" in targetParameter)
+      return getAmbiguousTypes(sourceParameter.components, targetParameter.components, args[parameterIndex]);
+    const types4 = [sourceParameter.type, targetParameter.type];
+    const ambiguous = (() => {
+      if (types4.includes("address") && types4.includes("bytes20"))
+        return true;
+      if (types4.includes("address") && types4.includes("string"))
+        return isAddress(args[parameterIndex], { strict: false });
+      if (types4.includes("address") && types4.includes("bytes"))
+        return isAddress(args[parameterIndex], { strict: false });
+      return false;
+    })();
+    if (ambiguous)
+      return types4;
+  }
+  return;
+}
+var init_getAbiItem = __esm(() => {
+  init_abi();
+  init_isAddress();
+  init_toEventSelector();
+  init_toFunctionSelector();
+});
+function prepareEncodeFunctionData(parameters) {
+  const { abi, args, functionName } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({
+      abi,
+      args,
+      name: functionName
+    });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath });
+  return {
+    abi: [abiItem],
+    functionName: toFunctionSelector(formatAbiItem2(abiItem))
+  };
+}
+var docsPath = "/docs/contract/encodeFunctionData";
+var init_prepareEncodeFunctionData = __esm(() => {
+  init_abi();
+  init_toFunctionSelector();
+  init_formatAbiItem2();
+  init_getAbiItem();
+});
+function encodeFunctionData(parameters) {
+  const { args } = parameters;
+  const { abi, functionName } = (() => {
+    if (parameters.abi.length === 1 && parameters.functionName?.startsWith("0x"))
+      return parameters;
+    return prepareEncodeFunctionData(parameters);
+  })();
+  const abiItem = abi[0];
+  const signature = functionName;
+  const data = "inputs" in abiItem && abiItem.inputs ? encodeAbiParameters(abiItem.inputs, args ?? []) : undefined;
+  return concatHex([signature, data ?? "0x"]);
+}
+var init_encodeFunctionData = __esm(() => {
+  init_encodeAbiParameters();
+  init_prepareEncodeFunctionData();
+});
+var NegativeOffsetError;
+var PositionOutOfBoundsError;
+var RecursiveReadLimitExceededError;
+var init_cursor = __esm(() => {
+  init_base();
+  NegativeOffsetError = class NegativeOffsetError2 extends BaseError2 {
+    constructor({ offset }) {
+      super(`Offset \`${offset}\` cannot be negative.`, {
+        name: "NegativeOffsetError"
+      });
+    }
+  };
+  PositionOutOfBoundsError = class PositionOutOfBoundsError2 extends BaseError2 {
+    constructor({ length, position }) {
+      super(`Position \`${position}\` is out of bounds (\`0 < position < ${length}\`).`, { name: "PositionOutOfBoundsError" });
+    }
+  };
+  RecursiveReadLimitExceededError = class RecursiveReadLimitExceededError2 extends BaseError2 {
+    constructor({ count, limit }) {
+      super(`Recursive read limit of \`${limit}\` exceeded (recursive read count: \`${count}\`).`, { name: "RecursiveReadLimitExceededError" });
+    }
+  };
+});
+function createCursor(bytes, { recursiveReadLimit = 8192 } = {}) {
+  const cursor = Object.create(staticCursor);
+  cursor.bytes = bytes;
+  cursor.dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  cursor.positionReadCount = new Map;
+  cursor.recursiveReadLimit = recursiveReadLimit;
+  return cursor;
+}
+var staticCursor;
+var init_cursor2 = __esm(() => {
+  init_cursor();
+  staticCursor = {
+    bytes: new Uint8Array,
+    dataView: new DataView(new ArrayBuffer(0)),
+    position: 0,
+    positionReadCount: new Map,
+    recursiveReadCount: 0,
+    recursiveReadLimit: Number.POSITIVE_INFINITY,
+    assertReadLimit() {
+      if (this.recursiveReadCount >= this.recursiveReadLimit)
+        throw new RecursiveReadLimitExceededError({
+          count: this.recursiveReadCount + 1,
+          limit: this.recursiveReadLimit
+        });
+    },
+    assertPosition(position) {
+      if (position < 0 || position > this.bytes.length - 1)
+        throw new PositionOutOfBoundsError({
+          length: this.bytes.length,
+          position
+        });
+    },
+    decrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position - offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    getReadCount(position) {
+      return this.positionReadCount.get(position || this.position) || 0;
+    },
+    incrementPosition(offset) {
+      if (offset < 0)
+        throw new NegativeOffsetError({ offset });
+      const position = this.position + offset;
+      this.assertPosition(position);
+      this.position = position;
+    },
+    inspectByte(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectBytes(length, position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + length - 1);
+      return this.bytes.subarray(position, position + length);
+    },
+    inspectUint8(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position);
+      return this.bytes[position];
+    },
+    inspectUint16(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 1);
+      return this.dataView.getUint16(position);
+    },
+    inspectUint24(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 2);
+      return (this.dataView.getUint16(position) << 8) + this.dataView.getUint8(position + 2);
+    },
+    inspectUint32(position_) {
+      const position = position_ ?? this.position;
+      this.assertPosition(position + 3);
+      return this.dataView.getUint32(position);
+    },
+    pushByte(byte) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = byte;
+      this.position++;
+    },
+    pushBytes(bytes) {
+      this.assertPosition(this.position + bytes.length - 1);
+      this.bytes.set(bytes, this.position);
+      this.position += bytes.length;
+    },
+    pushUint8(value2) {
+      this.assertPosition(this.position);
+      this.bytes[this.position] = value2;
+      this.position++;
+    },
+    pushUint16(value2) {
+      this.assertPosition(this.position + 1);
+      this.dataView.setUint16(this.position, value2);
+      this.position += 2;
+    },
+    pushUint24(value2) {
+      this.assertPosition(this.position + 2);
+      this.dataView.setUint16(this.position, value2 >> 8);
+      this.dataView.setUint8(this.position + 2, value2 & ~4294967040);
+      this.position += 3;
+    },
+    pushUint32(value2) {
+      this.assertPosition(this.position + 3);
+      this.dataView.setUint32(this.position, value2);
+      this.position += 4;
+    },
+    readByte() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectByte();
+      this.position++;
+      return value2;
+    },
+    readBytes(length, size2) {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectBytes(length);
+      this.position += size2 ?? length;
+      return value2;
+    },
+    readUint8() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint8();
+      this.position += 1;
+      return value2;
+    },
+    readUint16() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint16();
+      this.position += 2;
+      return value2;
+    },
+    readUint24() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint24();
+      this.position += 3;
+      return value2;
+    },
+    readUint32() {
+      this.assertReadLimit();
+      this._touch();
+      const value2 = this.inspectUint32();
+      this.position += 4;
+      return value2;
+    },
+    get remaining() {
+      return this.bytes.length - this.position;
+    },
+    setPosition(position) {
+      const oldPosition = this.position;
+      this.assertPosition(position);
+      this.position = position;
+      return () => this.position = oldPosition;
+    },
+    _touch() {
+      if (this.recursiveReadLimit === Number.POSITIVE_INFINITY)
+        return;
+      const count = this.getReadCount();
+      this.positionReadCount.set(this.position, count + 1);
+      if (count > 0)
+        this.recursiveReadCount++;
+    }
+  };
+});
+function bytesToBigInt(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToBigInt(hex, opts);
+}
+function bytesToBool(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes);
+  }
+  if (bytes.length > 1 || bytes[0] > 1)
+    throw new InvalidBytesBooleanError(bytes);
+  return Boolean(bytes[0]);
+}
+function bytesToNumber(bytes, opts = {}) {
+  if (typeof opts.size !== "undefined")
+    assertSize2(bytes, { size: opts.size });
+  const hex = bytesToHex2(bytes, opts);
+  return hexToNumber(hex, opts);
+}
+function bytesToString(bytes_, opts = {}) {
+  let bytes = bytes_;
+  if (typeof opts.size !== "undefined") {
+    assertSize2(bytes, { size: opts.size });
+    bytes = trim(bytes, { dir: "right" });
+  }
+  return new TextDecoder().decode(bytes);
+}
+var init_fromBytes = __esm(() => {
+  init_encoding();
+  init_fromHex();
+  init_toHex();
+});
+function decodeAbiParameters(params, data) {
+  const bytes = typeof data === "string" ? hexToBytes2(data) : data;
+  const cursor = createCursor(bytes);
+  if (size(bytes) === 0 && params.length > 0)
+    throw new AbiDecodingZeroDataError;
+  if (size(data) && size(data) < 32)
+    throw new AbiDecodingDataSizeTooSmallError({
+      data: typeof data === "string" ? data : bytesToHex2(data),
+      params,
+      size: size(data)
+    });
+  let consumed = 0;
+  const values = [];
+  for (let i2 = 0;i2 < params.length; ++i2) {
+    const param = params[i2];
+    cursor.setPosition(consumed);
+    const [data2, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: 0
+    });
+    consumed += consumed_;
+    values.push(data2);
+  }
+  return values;
+}
+function decodeParameter(cursor, param, { staticPosition }) {
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents) {
+    const [length, type] = arrayComponents;
+    return decodeArray(cursor, { ...param, type }, { length, staticPosition });
+  }
+  if (param.type === "tuple")
+    return decodeTuple(cursor, param, { staticPosition });
+  if (param.type === "address")
+    return decodeAddress(cursor);
+  if (param.type === "bool")
+    return decodeBool(cursor);
+  if (param.type.startsWith("bytes"))
+    return decodeBytes(cursor, param, { staticPosition });
+  if (param.type.startsWith("uint") || param.type.startsWith("int"))
+    return decodeNumber(cursor, param);
+  if (param.type === "string")
+    return decodeString(cursor, { staticPosition });
+  throw new InvalidAbiDecodingTypeError(param.type, {
+    docsPath: "/docs/contract/decodeAbiParameters"
+  });
+}
+function decodeAddress(cursor) {
+  const value2 = cursor.readBytes(32);
+  return [checksumAddress(bytesToHex2(sliceBytes(value2, -20))), 32];
+}
+function decodeArray(cursor, param, { length, staticPosition }) {
+  if (!length) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const startOfData = start + sizeOfLength;
+    cursor.setPosition(start);
+    const length2 = bytesToNumber(cursor.readBytes(sizeOfLength));
+    const dynamicChild = hasDynamicChild(param);
+    let consumed2 = 0;
+    const value3 = [];
+    for (let i2 = 0;i2 < length2; ++i2) {
+      cursor.setPosition(startOfData + (dynamicChild ? i2 * 32 : consumed2));
+      const [data, consumed_] = decodeParameter(cursor, param, {
+        staticPosition: startOfData
+      });
+      consumed2 += consumed_;
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    const value3 = [];
+    for (let i2 = 0;i2 < length; ++i2) {
+      cursor.setPosition(start + i2 * 32);
+      const [data] = decodeParameter(cursor, param, {
+        staticPosition: start
+      });
+      value3.push(data);
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value3, 32];
+  }
+  let consumed = 0;
+  const value2 = [];
+  for (let i2 = 0;i2 < length; ++i2) {
+    const [data, consumed_] = decodeParameter(cursor, param, {
+      staticPosition: staticPosition + consumed
+    });
+    consumed += consumed_;
+    value2.push(data);
+  }
+  return [value2, consumed];
+}
+function decodeBool(cursor) {
+  return [bytesToBool(cursor.readBytes(32), { size: 32 }), 32];
+}
+function decodeBytes(cursor, param, { staticPosition }) {
+  const [_, size2] = param.type.split("bytes");
+  if (!size2) {
+    const offset = bytesToNumber(cursor.readBytes(32));
+    cursor.setPosition(staticPosition + offset);
+    const length = bytesToNumber(cursor.readBytes(32));
+    if (length === 0) {
+      cursor.setPosition(staticPosition + 32);
+      return ["0x", 32];
+    }
+    const data = cursor.readBytes(length);
+    cursor.setPosition(staticPosition + 32);
+    return [bytesToHex2(data), 32];
+  }
+  const value2 = bytesToHex2(cursor.readBytes(Number.parseInt(size2), 32));
+  return [value2, 32];
+}
+function decodeNumber(cursor, param) {
+  const signed = param.type.startsWith("int");
+  const size2 = Number.parseInt(param.type.split("int")[1] || "256");
+  const value2 = cursor.readBytes(32);
+  return [
+    size2 > 48 ? bytesToBigInt(value2, { signed }) : bytesToNumber(value2, { signed }),
+    32
+  ];
+}
+function decodeTuple(cursor, param, { staticPosition }) {
+  const hasUnnamedChild = param.components.length === 0 || param.components.some(({ name }) => !name);
+  const value2 = hasUnnamedChild ? [] : {};
+  let consumed = 0;
+  if (hasDynamicChild(param)) {
+    const offset = bytesToNumber(cursor.readBytes(sizeOfOffset));
+    const start = staticPosition + offset;
+    for (let i2 = 0;i2 < param.components.length; ++i2) {
+      const component = param.components[i2];
+      cursor.setPosition(start + consumed);
+      const [data, consumed_] = decodeParameter(cursor, component, {
+        staticPosition: start
+      });
+      consumed += consumed_;
+      value2[hasUnnamedChild ? i2 : component?.name] = data;
+    }
+    cursor.setPosition(staticPosition + 32);
+    return [value2, 32];
+  }
+  for (let i2 = 0;i2 < param.components.length; ++i2) {
+    const component = param.components[i2];
+    const [data, consumed_] = decodeParameter(cursor, component, {
+      staticPosition
+    });
+    value2[hasUnnamedChild ? i2 : component?.name] = data;
+    consumed += consumed_;
+  }
+  return [value2, consumed];
+}
+function decodeString(cursor, { staticPosition }) {
+  const offset = bytesToNumber(cursor.readBytes(32));
+  const start = staticPosition + offset;
+  cursor.setPosition(start);
+  const length = bytesToNumber(cursor.readBytes(32));
+  if (length === 0) {
+    cursor.setPosition(staticPosition + 32);
+    return ["", 32];
+  }
+  const data = cursor.readBytes(length, 32);
+  const value2 = bytesToString(trim(data));
+  cursor.setPosition(staticPosition + 32);
+  return [value2, 32];
+}
+function hasDynamicChild(param) {
+  const { type } = param;
+  if (type === "string")
+    return true;
+  if (type === "bytes")
+    return true;
+  if (type.endsWith("[]"))
+    return true;
+  if (type === "tuple")
+    return param.components?.some(hasDynamicChild);
+  const arrayComponents = getArrayComponents(param.type);
+  if (arrayComponents && hasDynamicChild({ ...param, type: arrayComponents[1] }))
+    return true;
+  return false;
+}
+var sizeOfLength = 32;
+var sizeOfOffset = 32;
+var init_decodeAbiParameters = __esm(() => {
+  init_abi();
+  init_getAddress();
+  init_cursor2();
+  init_size();
+  init_slice();
+  init_fromBytes();
+  init_toBytes();
+  init_toHex();
+  init_encodeAbiParameters();
+});
+function decodeFunctionResult(parameters) {
+  const { abi, args, functionName, data } = parameters;
+  let abiItem = abi[0];
+  if (functionName) {
+    const item = getAbiItem({ abi, args, name: functionName });
+    if (!item)
+      throw new AbiFunctionNotFoundError(functionName, { docsPath: docsPath3 });
+    abiItem = item;
+  }
+  if (abiItem.type !== "function")
+    throw new AbiFunctionNotFoundError(undefined, { docsPath: docsPath3 });
+  if (!abiItem.outputs)
+    throw new AbiFunctionOutputsNotFoundError(abiItem.name, { docsPath: docsPath3 });
+  const values = decodeAbiParameters(abiItem.outputs, data);
+  if (values && values.length > 1)
+    return values;
+  if (values && values.length === 1)
+    return values[0];
+  return;
+}
+var docsPath3 = "/docs/contract/decodeFunctionResult";
+var init_decodeFunctionResult = __esm(() => {
+  init_abi();
+  init_decodeAbiParameters();
+  init_getAbiItem();
+});
 function isMessage(arg, schema) {
   const isMessage2 = arg !== null && typeof arg == "object" && "$typeName" in arg && typeof arg.$typeName == "string";
   if (!isMessage2) {
@@ -3782,6 +6614,7 @@ var ListSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 3);
 var DecimalSchema = /* @__PURE__ */ messageDesc(file_values_v1_values, 4);
 var file_sdk_v1alpha_sdk = /* @__PURE__ */ fileDesc("ChVzZGsvdjFhbHBoYS9zZGsucHJvdG8SC3Nkay52MWFscGhhIrQBChVTaW1wbGVDb25zZW5zdXNJbnB1dHMSIQoFdmFsdWUYASABKAsyEC52YWx1ZXMudjEuVmFsdWVIABIPCgVlcnJvchgCIAEoCUgAEjUKC2Rlc2NyaXB0b3JzGAMgASgLMiAuc2RrLnYxYWxwaGEuQ29uc2Vuc3VzRGVzY3JpcHRvchIhCgdkZWZhdWx0GAQgASgLMhAudmFsdWVzLnYxLlZhbHVlQg0KC29ic2VydmF0aW9uIpABCglGaWVsZHNNYXASMgoGZmllbGRzGAEgAygLMiIuc2RrLnYxYWxwaGEuRmllbGRzTWFwLkZpZWxkc0VudHJ5Gk8KC0ZpZWxkc0VudHJ5EgsKA2tleRgBIAEoCRIvCgV2YWx1ZRgCIAEoCzIgLnNkay52MWFscGhhLkNvbnNlbnN1c0Rlc2NyaXB0b3I6AjgBIoYBChNDb25zZW5zdXNEZXNjcmlwdG9yEjMKC2FnZ3JlZ2F0aW9uGAEgASgOMhwuc2RrLnYxYWxwaGEuQWdncmVnYXRpb25UeXBlSAASLAoKZmllbGRzX21hcBgCIAEoCzIWLnNkay52MWFscGhhLkZpZWxkc01hcEgAQgwKCmRlc2NyaXB0b3IiagoNUmVwb3J0UmVxdWVzdBIXCg9lbmNvZGVkX3BheWxvYWQYASABKAwSFAoMZW5jb2Rlcl9uYW1lGAIgASgJEhQKDHNpZ25pbmdfYWxnbxgDIAEoCRIUCgxoYXNoaW5nX2FsZ28YBCABKAkilwEKDlJlcG9ydFJlc3BvbnNlEhUKDWNvbmZpZ19kaWdlc3QYASABKAwSEgoGc2VxX25yGAIgASgEQgIwABIWCg5yZXBvcnRfY29udGV4dBgDIAEoDBISCgpyYXdfcmVwb3J0GAQgASgMEi4KBHNpZ3MYBSADKAsyIC5zZGsudjFhbHBoYS5BdHRyaWJ1dGVkU2lnbmF0dXJlIjsKE0F0dHJpYnV0ZWRTaWduYXR1cmUSEQoJc2lnbmF0dXJlGAEgASgMEhEKCXNpZ25lcl9pZBgCIAEoDSJrChFDYXBhYmlsaXR5UmVxdWVzdBIKCgJpZBgBIAEoCRIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueRIOCgZtZXRob2QYAyABKAkSEwoLY2FsbGJhY2tfaWQYBCABKAUiWgoSQ2FwYWJpbGl0eVJlc3BvbnNlEicKB3BheWxvYWQYASABKAsyFC5nb29nbGUucHJvdG9idWYuQW55SAASDwoFZXJyb3IYAiABKAlIAEIKCghyZXNwb25zZSJYChNUcmlnZ2VyU3Vic2NyaXB0aW9uEgoKAmlkGAEgASgJEiUKB3BheWxvYWQYAiABKAsyFC5nb29nbGUucHJvdG9idWYuQW55Eg4KBm1ldGhvZBgDIAEoCSJVChpUcmlnZ2VyU3Vic2NyaXB0aW9uUmVxdWVzdBI3Cg1zdWJzY3JpcHRpb25zGAEgAygLMiAuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvbiJACgdUcmlnZ2VyEg4KAmlkGAEgASgEQgIwABIlCgdwYXlsb2FkGAIgASgLMhQuZ29vZ2xlLnByb3RvYnVmLkFueSInChhBd2FpdENhcGFiaWxpdGllc1JlcXVlc3QSCwoDaWRzGAEgAygFIrgBChlBd2FpdENhcGFiaWxpdGllc1Jlc3BvbnNlEkgKCXJlc3BvbnNlcxgBIAMoCzI1LnNkay52MWFscGhhLkF3YWl0Q2FwYWJpbGl0aWVzUmVzcG9uc2UuUmVzcG9uc2VzRW50cnkaUQoOUmVzcG9uc2VzRW50cnkSCwoDa2V5GAEgASgFEi4KBXZhbHVlGAIgASgLMh8uc2RrLnYxYWxwaGEuQ2FwYWJpbGl0eVJlc3BvbnNlOgI4ASKgAQoORXhlY3V0ZVJlcXVlc3QSDgoGY29uZmlnGAEgASgMEisKCXN1YnNjcmliZRgCIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEicKB3RyaWdnZXIYAyABKAsyFC5zZGsudjFhbHBoYS5UcmlnZ2VySAASHQoRbWF4X3Jlc3BvbnNlX3NpemUYBCABKARCAjAAQgkKB3JlcXVlc3QimQEKD0V4ZWN1dGlvblJlc3VsdBIhCgV2YWx1ZRgBIAEoCzIQLnZhbHVlcy52MS5WYWx1ZUgAEg8KBWVycm9yGAIgASgJSAASSAoVdHJpZ2dlcl9zdWJzY3JpcHRpb25zGAMgASgLMicuc2RrLnYxYWxwaGEuVHJpZ2dlclN1YnNjcmlwdGlvblJlcXVlc3RIAEIICgZyZXN1bHQiVgoRR2V0U2VjcmV0c1JlcXVlc3QSLAoIcmVxdWVzdHMYASADKAsyGi5zZGsudjFhbHBoYS5TZWNyZXRSZXF1ZXN0EhMKC2NhbGxiYWNrX2lkGAIgASgFIiIKE0F3YWl0U2VjcmV0c1JlcXVlc3QSCwoDaWRzGAEgAygFIqsBChRBd2FpdFNlY3JldHNSZXNwb25zZRJDCglyZXNwb25zZXMYASADKAsyMC5zZGsudjFhbHBoYS5Bd2FpdFNlY3JldHNSZXNwb25zZS5SZXNwb25zZXNFbnRyeRpOCg5SZXNwb25zZXNFbnRyeRILCgNrZXkYASABKAUSKwoFdmFsdWUYAiABKAsyHC5zZGsudjFhbHBoYS5TZWNyZXRSZXNwb25zZXM6AjgBIi4KDVNlY3JldFJlcXVlc3QSCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJIkUKBlNlY3JldBIKCgJpZBgBIAEoCRIRCgluYW1lc3BhY2UYAiABKAkSDQoFb3duZXIYAyABKAkSDQoFdmFsdWUYBCABKAkiSgoLU2VjcmV0RXJyb3ISCgoCaWQYASABKAkSEQoJbmFtZXNwYWNlGAIgASgJEg0KBW93bmVyGAMgASgJEg0KBWVycm9yGAQgASgJIm4KDlNlY3JldFJlc3BvbnNlEiUKBnNlY3JldBgBIAEoCzITLnNkay52MWFscGhhLlNlY3JldEgAEikKBWVycm9yGAIgASgLMhguc2RrLnYxYWxwaGEuU2VjcmV0RXJyb3JIAEIKCghyZXNwb25zZSJBCg9TZWNyZXRSZXNwb25zZXMSLgoJcmVzcG9uc2VzGAEgAygLMhsuc2RrLnYxYWxwaGEuU2VjcmV0UmVzcG9uc2UquAEKD0FnZ3JlZ2F0aW9uVHlwZRIgChxBR0dSRUdBVElPTl9UWVBFX1VOU1BFQ0lGSUVEEAASGwoXQUdHUkVHQVRJT05fVFlQRV9NRURJQU4QARIeChpBR0dSRUdBVElPTl9UWVBFX0lERU5USUNBTBACEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1BSRUZJWBADEiIKHkFHR1JFR0FUSU9OX1RZUEVfQ09NTU9OX1NVRkZJWBAEKjkKBE1vZGUSFAoQTU9ERV9VTlNQRUNJRklFRBAAEgwKCE1PREVfRE9OEAESDQoJTU9ERV9OT0RFEAJCaAoPY29tLnNkay52MWFscGhhQghTZGtQcm90b1ABogIDU1hYqgILU2RrLlYxYWxwaGHKAgtTZGtcVjFhbHBoYeICF1Nka1xWMWFscGhhXEdQQk1ldGFkYXRh6gIMU2RrOjpWMWFscGhhYgZwcm90bzM", [file_google_protobuf_any, file_google_protobuf_empty, file_values_v1_values]);
 var SimpleConsensusInputsSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 0);
+var ConsensusDescriptorSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 2);
 var ReportRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 3);
 var ReportResponseSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 4);
 var CapabilityRequestSchema = /* @__PURE__ */ messageDesc(file_sdk_v1alpha_sdk, 6);
@@ -3872,6 +6705,22 @@ var hexToBytes = (hexStr) => {
     bytes[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
   }
   return bytes;
+};
+var bytesToHex = (bytes) => {
+  return `0x${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+};
+var hexToBase64 = (hex) => {
+  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (cleanHex.length === 0) {
+    return "";
+  }
+  if (cleanHex.length % 2 !== 0) {
+    throw new Error(`Hex string must have an even number of characters: ${hex}`);
+  }
+  if (!/^[0-9a-fA-F]*$/.test(cleanHex)) {
+    throw new Error(`Invalid hex string: ${hex}`);
+  }
+  return Buffer.from(cleanHex, "hex").toString("base64");
 };
 function createWriteCreReportRequest(input) {
   return {
@@ -4357,8 +7206,8 @@ function fromByteArray(uint8) {
     tmp = (uint8[len2 - 2] << 8) + uint8[len2 - 1], parts.push(lookup[tmp >> 10] + lookup[tmp >> 4 & 63] + lookup[tmp << 2 & 63] + "=");
   return parts.join("");
 }
-function read(buffer, offset, isLE, mLen, nBytes) {
-  var e, m, eLen = nBytes * 8 - mLen - 1, eMax = (1 << eLen) - 1, eBias = eMax >> 1, nBits = -7, i2 = isLE ? nBytes - 1 : 0, d = isLE ? -1 : 1, s = buffer[offset + i2];
+function read(buffer, offset, isLE2, mLen, nBytes) {
+  var e, m, eLen = nBytes * 8 - mLen - 1, eMax = (1 << eLen) - 1, eBias = eMax >> 1, nBits = -7, i2 = isLE2 ? nBytes - 1 : 0, d = isLE2 ? -1 : 1, s = buffer[offset + i2];
   i2 += d, e = s & (1 << -nBits) - 1, s >>= -nBits, nBits += eLen;
   for (;nBits > 0; e = e * 256 + buffer[offset + i2], i2 += d, nBits -= 8)
     ;
@@ -4373,8 +7222,8 @@ function read(buffer, offset, isLE, mLen, nBytes) {
     m = m + Math.pow(2, mLen), e = e - eBias;
   return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
 }
-function write(buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c, eLen = nBytes * 8 - mLen - 1, eMax = (1 << eLen) - 1, eBias = eMax >> 1, rt = mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0, i2 = isLE ? 0 : nBytes - 1, d = isLE ? 1 : -1, s = value < 0 || value === 0 && 1 / value < 0 ? 1 : 0;
+function write(buffer, value, offset, isLE2, mLen, nBytes) {
+  var e, m, c, eLen = nBytes * 8 - mLen - 1, eMax = (1 << eLen) - 1, eBias = eMax >> 1, rt = mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0, i2 = isLE2 ? 0 : nBytes - 1, d = isLE2 ? 1 : -1, s = value < 0 || value === 0 && 1 / value < 0 ? 1 : 0;
   if (value = Math.abs(value), isNaN(value) || value === 1 / 0)
     m = isNaN(value) ? 1 : 0, e = eMax;
   else {
@@ -4496,30 +7345,30 @@ Buffer2.from = function(value, encodingOrOffset, length) {
 };
 Object.setPrototypeOf(Buffer2.prototype, Uint8Array.prototype);
 Object.setPrototypeOf(Buffer2, Uint8Array);
-function assertSize(size) {
-  if (typeof size !== "number")
+function assertSize(size2) {
+  if (typeof size2 !== "number")
     throw TypeError('"size" argument must be of type number');
-  else if (size < 0)
-    throw RangeError('The value "' + size + '" is invalid for option "size"');
+  else if (size2 < 0)
+    throw RangeError('The value "' + size2 + '" is invalid for option "size"');
 }
-function alloc(size, fill, encoding) {
-  if (assertSize(size), size <= 0)
-    return createBuffer(size);
+function alloc(size2, fill, encoding) {
+  if (assertSize(size2), size2 <= 0)
+    return createBuffer(size2);
   if (fill !== undefined)
-    return typeof encoding === "string" ? createBuffer(size).fill(fill, encoding) : createBuffer(size).fill(fill);
-  return createBuffer(size);
+    return typeof encoding === "string" ? createBuffer(size2).fill(fill, encoding) : createBuffer(size2).fill(fill);
+  return createBuffer(size2);
 }
-Buffer2.alloc = function(size, fill, encoding) {
-  return alloc(size, fill, encoding);
+Buffer2.alloc = function(size2, fill, encoding) {
+  return alloc(size2, fill, encoding);
 };
-function allocUnsafe(size) {
-  return assertSize(size), createBuffer(size < 0 ? 0 : checked(size) | 0);
+function allocUnsafe(size2) {
+  return assertSize(size2), createBuffer(size2 < 0 ? 0 : checked(size2) | 0);
 }
-Buffer2.allocUnsafe = function(size) {
-  return allocUnsafe(size);
+Buffer2.allocUnsafe = function(size2) {
+  return allocUnsafe(size2);
 };
-Buffer2.allocUnsafeSlow = function(size) {
-  return allocUnsafe(size);
+Buffer2.allocUnsafeSlow = function(size2) {
+  return allocUnsafe(size2);
 };
 function fromString(string, encoding) {
   if (typeof encoding !== "string" || encoding === "")
@@ -5645,6 +8494,33 @@ var LATEST_BLOCK_NUMBER = {
   absVal: Buffer.from([2]).toString("base64"),
   sign: "-1"
 };
+var encodeCallMsg = (payload) => ({
+  from: hexToBase64(payload.from),
+  to: hexToBase64(payload.to),
+  data: hexToBase64(payload.data)
+});
+var decodeJson = (input) => {
+  const decoder = new TextDecoder("utf-8");
+  const textBody = decoder.decode(input);
+  return JSON.parse(textBody);
+};
+function json(responseOrFn) {
+  if (typeof responseOrFn === "function") {
+    return {
+      result: () => json(responseOrFn().result)
+    };
+  }
+  return decodeJson(responseOrFn.body);
+}
+function ok(responseOrFn) {
+  if (typeof responseOrFn === "function") {
+    return {
+      result: () => ok(responseOrFn().result)
+    };
+  } else {
+    return responseOrFn.statusCode >= 200 && responseOrFn.statusCode < 300;
+  }
+}
 function sendReport(runtime, report, fn) {
   const rawReport = report.x_generatedCodeOnly_unwrap();
   const request = fn(rawReport);
@@ -9274,6 +12150,33 @@ var defaultLookup = new NetworkLookup({
   testnetBySelectorByFamily
 });
 var getNetwork = (options) => defaultLookup.find(options);
+function consensusIdenticalAggregation() {
+  return simpleConsensus(AggregationType.IDENTICAL);
+}
+
+class ConsensusImpl {
+  descriptor;
+  defaultValue;
+  constructor(descriptor, defaultValue) {
+    this.descriptor = descriptor;
+    this.defaultValue = defaultValue;
+  }
+  withDefault(t) {
+    return new ConsensusImpl(this.descriptor, t);
+  }
+  _usesUToForceShape(_) {}
+}
+function simpleConsensus(agg) {
+  return new ConsensusImpl(simpleDescriptor(agg));
+}
+function simpleDescriptor(agg) {
+  return create(ConsensusDescriptorSchema, {
+    descriptor: {
+      case: "aggregation",
+      value: agg
+    }
+  });
+}
 
 class Int64 {
   static INT64_MIN = -(2n ** 63n);
@@ -9888,8 +12791,8 @@ var ZodIssueCode = util.arrayToEnum([
   "not_finite"
 ]);
 var quotelessJson = (obj) => {
-  const json = JSON.stringify(obj, null, 2);
-  return json.replace(/"([^"]+)":/g, "$1:");
+  const json2 = JSON.stringify(obj, null, 2);
+  return json2.replace(/"([^"]+)":/g, "$1:");
 };
 
 class ZodError extends Error {
@@ -10590,11 +13493,11 @@ function datetimeRegex(args) {
   regex = `${regex}(${opts.join("|")})`;
   return new RegExp(`^${regex}$`);
 }
-function isValidIP(ip, version) {
-  if ((version === "v4" || !version) && ipv4Regex.test(ip)) {
+function isValidIP(ip, version3) {
+  if ((version3 === "v4" || !version3) && ipv4Regex.test(ip)) {
     return true;
   }
-  if ((version === "v6" || !version) && ipv6Regex.test(ip)) {
+  if ((version3 === "v6" || !version3) && ipv6Regex.test(ip)) {
     return true;
   }
   return false;
@@ -10621,11 +13524,11 @@ function isValidJWT(jwt, alg) {
     return false;
   }
 }
-function isValidCidr(ip, version) {
-  if ((version === "v4" || !version) && ipv4CidrRegex.test(ip)) {
+function isValidCidr(ip, version3) {
+  if ((version3 === "v4" || !version3) && ipv4CidrRegex.test(ip)) {
     return true;
   }
-  if ((version === "v6" || !version) && ipv6CidrRegex.test(ip)) {
+  if ((version3 === "v6" || !version3) && ipv6CidrRegex.test(ip)) {
     return true;
   }
   return false;
@@ -12787,8 +15690,8 @@ class ZodSet extends ZodType {
       maxSize: { value: maxSize, message: errorUtil.toString(message) }
     });
   }
-  size(size, message) {
-    return this.min(size, message).max(size, message);
+  size(size2, message) {
+    return this.min(size2, message).max(size2, message);
   }
   nonempty(message) {
     return this.min(1, message);
@@ -14264,6 +17167,7 @@ var parseContracts = (value2) => {
   return {
     rescueExecutor: requireString(value2.rescueExecutor, "contracts.rescueExecutor"),
     rescueReporter: requireString(value2.rescueReporter, "contracts.rescueReporter"),
+    workflowReceiver: value2.workflowReceiver === undefined ? undefined : requireString(value2.workflowReceiver, "contracts.workflowReceiver"),
     ccipReceiver: requireString(value2.ccipReceiver, "contracts.ccipReceiver")
   };
 };
@@ -14301,7 +17205,8 @@ var parseRescuePolicy = (value2) => {
   return {
     defaultMode,
     allowCrossChain: requireBoolean(value2.allowCrossChain, "rescue.allowCrossChain"),
-    reserveCapBps: requireNumber(value2.reserveCapBps, "rescue.reserveCapBps", 1, 1e4)
+    reserveCapBps: requireNumber(value2.reserveCapBps, "rescue.reserveCapBps", 1, 1e4),
+    minActionUsd: value2.minActionUsd === undefined ? 0 : requireNumber(value2.minActionUsd, "rescue.minActionUsd", 0)
   };
 };
 var parseCrossChain = (value2) => {
@@ -14321,8 +17226,9 @@ var parseMonitoredAdapter = (value2, path) => {
   return {
     label: requireString(value2.label, `${path}.label`),
     adapterAddress: requireString(value2.adapterAddress, `${path}.adapterAddress`),
-    rescueTargetChainSelector: value2.rescueTargetChainSelector === undefined ? undefined : requireString(value2.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`),
-    preferCrossChain: value2.preferCrossChain === undefined ? undefined : requireBoolean(value2.preferCrossChain, `${path}.preferCrossChain`)
+    chainSelectorName: value2.chainSelectorName === undefined ? undefined : requireString(value2.chainSelectorName, `${path}.chainSelectorName`),
+    isTestnet: value2.isTestnet === undefined ? undefined : requireBoolean(value2.isTestnet, `${path}.isTestnet`),
+    rescueTargetChainSelector: value2.rescueTargetChainSelector === undefined ? undefined : requireString(value2.rescueTargetChainSelector, `${path}.rescueTargetChainSelector`)
   };
 };
 var parseMonitoring = (value2) => {
@@ -14345,11 +17251,36 @@ var parseChainlinkApiSource = (value2) => {
   if (!isRecord(value2)) {
     throw new Error('Invalid config at "dataSources.chainlinkApi": expected object');
   }
+  const stalePolicyRaw = value2.stalePolicy === undefined ? "ABORT" : requireString(value2.stalePolicy, "dataSources.chainlinkApi.stalePolicy");
+  if (stalePolicyRaw !== "ABORT" && stalePolicyRaw !== "WARN_ONLY") {
+    throw new Error('Invalid config at "dataSources.chainlinkApi.stalePolicy": expected ABORT or WARN_ONLY');
+  }
+  const crossChainAssetMapRaw = value2.crossChainAssetMap;
+  const crossChainAssetMap = {};
+  if (crossChainAssetMapRaw !== undefined) {
+    if (!isRecord(crossChainAssetMapRaw)) {
+      throw new Error('Invalid config at "dataSources.chainlinkApi.crossChainAssetMap": expected object map');
+    }
+    for (const [fromAsset, toAssetRaw] of Object.entries(crossChainAssetMapRaw)) {
+      if (typeof toAssetRaw !== "string" || toAssetRaw.trim().length === 0) {
+        throw new Error(`Invalid config at "dataSources.chainlinkApi.crossChainAssetMap.${fromAsset}": expected non-empty string`);
+      }
+      crossChainAssetMap[fromAsset.toLowerCase()] = toAssetRaw.toLowerCase();
+    }
+  }
   return {
     priceApiBaseUrl: requireString(value2.priceApiBaseUrl, "dataSources.chainlinkApi.priceApiBaseUrl"),
     priceApiPath: requireString(value2.priceApiPath, "dataSources.chainlinkApi.priceApiPath"),
-    maxPriceAgeSec: requireNumber(value2.maxPriceAgeSec, "dataSources.chainlinkApi.maxPriceAgeSec", 1),
+    maxPriceAgeSec: requireNumber(value2.maxPriceAgeSec, "dataSources.chainlinkApi.maxPriceAgeSec", 0),
+    stalePolicy: stalePolicyRaw,
+    crossChainAssetMap,
     integritySalt: requireString(value2.integritySalt, "dataSources.chainlinkApi.integritySalt"),
+    positionsApiBaseUrl: value2.positionsApiBaseUrl === undefined ? undefined : requireString(value2.positionsApiBaseUrl, "dataSources.chainlinkApi.positionsApiBaseUrl"),
+    positionsApiPath: value2.positionsApiPath === undefined ? undefined : requireString(value2.positionsApiPath, "dataSources.chainlinkApi.positionsApiPath"),
+    positionsApiKey: value2.positionsApiKey === undefined ? undefined : requireString(value2.positionsApiKey, "dataSources.chainlinkApi.positionsApiKey"),
+    positionsApiMaxAgeSec: value2.positionsApiMaxAgeSec === undefined ? undefined : requireNumber(value2.positionsApiMaxAgeSec, "dataSources.chainlinkApi.positionsApiMaxAgeSec", 1),
+    preferOnchainOracle: value2.preferOnchainOracle === undefined ? undefined : requireBoolean(value2.preferOnchainOracle, "dataSources.chainlinkApi.preferOnchainOracle"),
+    mockOracleAddress: value2.mockOracleAddress === undefined ? undefined : requireString(value2.mockOracleAddress, "dataSources.chainlinkApi.mockOracleAddress"),
     mockPricesUsd: value2.mockPricesUsd === undefined ? {} : parseStringNumberMap(value2.mockPricesUsd, "dataSources.chainlinkApi.mockPricesUsd")
   };
 };
@@ -14480,6 +17411,7 @@ var parseProfileWorkflowConfig = (raw, expectedStrategy) => {
         ...base,
         strategyId: "QUANT_FUNDING_OI_V1",
         ...common,
+        monitoring: parseMonitoring(raw.monitoring),
         thresholds: parseFundingOiThresholds(raw.thresholds),
         dataSources: {
           chainlinkApi: parseChainlinkApiSource(dataSources.chainlinkApi),
@@ -14491,6 +17423,7 @@ var parseProfileWorkflowConfig = (raw, expectedStrategy) => {
         ...base,
         strategyId: "QUANT_BASIS_LIQUIDITY_V1",
         ...common,
+        monitoring: parseMonitoring(raw.monitoring),
         thresholds: parseBasisLiquidityThresholds(raw.thresholds),
         dataSources: {
           chainlinkApi: parseChainlinkApiSource(dataSources.chainlinkApi),
@@ -14580,39 +17513,1537 @@ var registerBaseTriggers = (config, handlers) => {
   }
   return registrations;
 };
+init_exports();
+init_abi();
+init_size();
+init_toEventSelector();
+init_cursor();
+init_decodeAbiParameters();
+init_formatAbiItem2();
+var docsPath2 = "/docs/contract/decodeEventLog";
+function decodeEventLog(parameters) {
+  const { abi, data, strict: strict_, topics } = parameters;
+  const strict = strict_ ?? true;
+  const [signature, ...argTopics] = topics;
+  if (!signature)
+    throw new AbiEventSignatureEmptyTopicsError({ docsPath: docsPath2 });
+  const abiItem = abi.find((x) => x.type === "event" && signature === toEventSelector(formatAbiItem2(x)));
+  if (!(abiItem && ("name" in abiItem)) || abiItem.type !== "event")
+    throw new AbiEventSignatureNotFoundError(signature, { docsPath: docsPath2 });
+  const { name, inputs } = abiItem;
+  const isUnnamed = inputs?.some((x) => !(("name" in x) && x.name));
+  const args = isUnnamed ? [] : {};
+  const indexedInputs = inputs.map((x, i2) => [x, i2]).filter(([x]) => ("indexed" in x) && x.indexed);
+  for (let i2 = 0;i2 < indexedInputs.length; i2++) {
+    const [param, argIndex] = indexedInputs[i2];
+    const topic = argTopics[i2];
+    if (!topic)
+      throw new DecodeLogTopicsMismatch({
+        abiItem,
+        param
+      });
+    args[isUnnamed ? argIndex : param.name || argIndex] = decodeTopic({
+      param,
+      value: topic
+    });
+  }
+  const nonIndexedInputs = inputs.filter((x) => !(("indexed" in x) && x.indexed));
+  if (nonIndexedInputs.length > 0) {
+    if (data && data !== "0x") {
+      try {
+        const decodedData = decodeAbiParameters(nonIndexedInputs, data);
+        if (decodedData) {
+          if (isUnnamed)
+            for (let i2 = 0;i2 < inputs.length; i2++)
+              args[i2] = args[i2] ?? decodedData.shift();
+          else
+            for (let i2 = 0;i2 < nonIndexedInputs.length; i2++)
+              args[nonIndexedInputs[i2].name] = decodedData[i2];
+        }
+      } catch (err) {
+        if (strict) {
+          if (err instanceof AbiDecodingDataSizeTooSmallError || err instanceof PositionOutOfBoundsError)
+            throw new DecodeLogDataMismatch({
+              abiItem,
+              data,
+              params: nonIndexedInputs,
+              size: size(data)
+            });
+          throw err;
+        }
+      }
+    } else if (strict) {
+      throw new DecodeLogDataMismatch({
+        abiItem,
+        data: "0x",
+        params: nonIndexedInputs,
+        size: 0
+      });
+    }
+  }
+  return {
+    eventName: name,
+    args: Object.values(args).length > 0 ? args : undefined
+  };
+}
+function decodeTopic({ param, value: value2 }) {
+  if (param.type === "string" || param.type === "bytes" || param.type === "tuple" || param.type.match(/^(.*)\[(\d+)?\]$/))
+    return value2;
+  const decodedArg = decodeAbiParameters([param], value2) || [];
+  return decodedArg[0];
+}
+var zeroAddress = "0x0000000000000000000000000000000000000000";
+init_decodeFunctionResult();
+init_encodeAbiParameters();
+init_encodeFunctionData();
+init_toBytes();
+init_keccak256();
+var ADAPTER_ABI = parseAbi([
+  "function discoverPositions(address user) view returns ((address protocol,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,uint256 healthFactor,uint256 ltvBps,uint256 maxLtvBps,uint256 liquidationThresholdBps)[] positions)",
+  "function healthFactor(address user) view returns (uint256 hfWad)",
+  "function availableCollateral(address user, address asset) view returns (uint256 amount)"
+]);
+var RESCUE_EXECUTOR_ABI = parseAbi([
+  "function rescueInProgress(address user) view returns (bool)",
+  "function getRescueStatus(bytes32 execId) view returns (uint8)",
+  "function getCcipMessageId(bytes32 execId) view returns (bytes32)",
+  "function executeRescue((bytes32 execId,address user,uint8 mode,(uint256 stepIndex,address sourceAdapter,address targetAdapter,address collateralAsset,address debtAsset,uint256 collateralAmount,uint256 debtAmount,bool isCrossChain,uint64 targetChain)[] steps,uint256 deadline,uint256 maxFee) plan) returns (bool success)"
+]);
+var RESCUE_PLAN_REPORT_PARAMS = parseAbiParameters([
+  "(bytes32,address,uint8,(uint256,address,address,address,address,uint256,uint256,bool,uint64)[],uint256,uint256)"
+]);
+var RESCUE_LOG_ABI = parseAbi([
+  "function getLogEntries(bytes32 execId) view returns ((bytes32 execId,uint256 stepIndex,address user,uint8 status,uint256 timestamp,string details)[] entries)"
+]);
+var CCIP_RECEIVER_ABI = parseAbi([
+  "function getFailedMessage(bytes32 messageId) view returns ((bytes32 messageId,bytes32 escrowId,uint64 sourceChainSelector,address sender,bytes data,(address token,uint256 amount)[] tokenAmounts,string reason,uint256 timestamp,bool recovered) failedMessage)"
+]);
+var ERC20_METADATA_ABI = parseAbi([
+  "function decimals() view returns (uint8)"
+]);
+var MOCK_PRICE_ORACLE_ABI = parseAbi([
+  "function getPrice(address asset) view returns (uint256 price,uint256 timestamp)"
+]);
+var REPRIEVE_EVENT_ABI = parseAbi([
+  "event RescueInitiated(bytes32 indexed execId,address indexed user,uint256 steps,uint256 deadline)",
+  "event RescueCompleted(bytes32 indexed execId,address indexed user,uint8 status,uint256 finalStepIndex)",
+  "event RescueFailed(bytes32 indexed execId,address indexed user,string reason,uint256 failedStepIndex)",
+  "event CrossChainInitiated(bytes32 indexed execId,uint64 indexed targetChain,bytes32 indexed ccipMessageId,uint256 feePaid)",
+  "event CrossChainCompleted(bytes32 indexed execId,bytes32 indexed ccipMessageId,uint256 amountReceived)",
+  "event CrossChainDestinationFailed(bytes32 indexed execId,bytes32 indexed ccipMessageId,string reason)",
+  "event LogEntryAdded(bytes32 indexed execId,uint256 indexed stepIndex,address indexed user,uint8 status,string details)"
+]);
+var createEvmClient = (chain) => {
+  const network248 = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: chain.chainSelectorName,
+    isTestnet: chain.isTestnet
+  });
+  if (!network248) {
+    throw new Error(`Network not found: ${chain.chainSelectorName}`);
+  }
+  return new cre.capabilities.EVMClient(network248.chainSelector.selector);
+};
+var readContract = (runtime2, chain, contractAddress, abi, functionName, args = []) => {
+  const evmClient = createEvmClient(chain);
+  const calldata = encodeFunctionData({
+    abi,
+    functionName,
+    args
+  });
+  const response = evmClient.callContract(runtime2, {
+    call: encodeCallMsg({
+      from: zeroAddress,
+      to: contractAddress,
+      data: calldata
+    }),
+    blockNumber: LATEST_BLOCK_NUMBER
+  }).result();
+  return decodeFunctionResult({
+    abi,
+    functionName,
+    data: bytesToHex(response.data)
+  });
+};
+var discoverPositions = (runtime2, chain, adapterAddress, user) => readContract(runtime2, chain, adapterAddress, ADAPTER_ABI, "discoverPositions", [user]);
+var readTokenDecimals = (runtime2, chain, tokenAddress) => Number(readContract(runtime2, chain, tokenAddress, ERC20_METADATA_ABI, "decimals", []));
+var readMockOraclePrice = (runtime2, chain, oracleAddress, asset) => {
+  const result = readContract(runtime2, chain, oracleAddress, MOCK_PRICE_ORACLE_ABI, "getPrice", [asset]);
+  if ("price" in result) {
+    const named = result;
+    return {
+      priceWad: named.price,
+      updatedAt: Number(named.timestamp)
+    };
+  }
+  const tuple = result;
+  return {
+    priceWad: tuple[0],
+    updatedAt: Number(tuple[1])
+  };
+};
+var readRescueInProgress = (runtime2, chain, executorAddress, user) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "rescueInProgress", [user]);
+var readRescueStatus = (runtime2, chain, executorAddress, execId) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "getRescueStatus", [execId]);
+var readCcipMessageId = (runtime2, chain, executorAddress, execId) => readContract(runtime2, chain, executorAddress, RESCUE_EXECUTOR_ABI, "getCcipMessageId", [execId]);
+var encodeRescuePlanReport = (plan) => encodeAbiParameters(RESCUE_PLAN_REPORT_PARAMS, [
+  [
+    plan.execId,
+    plan.user,
+    plan.mode,
+    plan.steps.map((step) => [
+      step.stepIndex,
+      step.sourceAdapter,
+      step.targetAdapter,
+      step.collateralAsset,
+      step.debtAsset,
+      step.collateralAmount,
+      step.debtAmount,
+      step.isCrossChain,
+      step.targetChain
+    ]),
+    plan.deadline,
+    plan.maxFee
+  ]
+]);
+var submitRescuePlanReport = (runtime2, chain, workflowReceiverAddress, plan, gasLimit = "2500000") => {
+  const evmClient = createEvmClient(chain);
+  const reportPayload = encodeRescuePlanReport(plan);
+  runtime2.log("Submitting rescue report");
+  runtime2.log(`Report receiver: ${workflowReceiverAddress}`);
+  runtime2.log(`Execution id: ${plan.execId}`);
+  runtime2.log(`Report gas limit: ${gasLimit}`);
+  const reportResponse = runtime2.report({
+    encodedPayload: hexToBase64(reportPayload),
+    encoderName: "evm",
+    signingAlgo: "ecdsa",
+    hashingAlgo: "keccak256"
+  }).result();
+  const writeResult = evmClient.writeReport(runtime2, {
+    receiver: workflowReceiverAddress,
+    report: reportResponse,
+    gasConfig: {
+      gasLimit
+    }
+  }).result();
+  const txHash = bytesToHex(writeResult.txHash ?? new Uint8Array(32));
+  runtime2.log(`Rescue report submitted. Tx: ${txHash}`);
+  return txHash;
+};
+var readFailedMessage = (runtime2, chain, ccipReceiverAddress, messageId) => readContract(runtime2, chain, ccipReceiverAddress, CCIP_RECEIVER_ABI, "getFailedMessage", [messageId]);
+var decodeReprieveEvent = (log) => {
+  const topics = log.topics.map((item) => bytesToHex(item));
+  const data = bytesToHex(log.data);
+  try {
+    const decoded = decodeEventLog({
+      abi: REPRIEVE_EVENT_ABI,
+      topics,
+      data
+    });
+    return {
+      eventName: decoded.eventName,
+      args: decoded.args ?? {}
+    };
+  } catch {
+    return null;
+  }
+};
+var decodeCrossChainTerminalEvent = (log) => {
+  const decoded = decodeReprieveEvent(log);
+  if (!decoded)
+    return null;
+  if (decoded.eventName === "CrossChainCompleted") {
+    return {
+      execId: decoded.args.execId,
+      messageId: decoded.args.ccipMessageId,
+      status: "SUCCESS",
+      amountReceived: decoded.args.amountReceived
+    };
+  }
+  if (decoded.eventName === "CrossChainDestinationFailed") {
+    return {
+      execId: decoded.args.execId,
+      messageId: decoded.args.ccipMessageId,
+      status: "FAILED",
+      reason: decoded.args.reason
+    };
+  }
+  return null;
+};
+var WAD = 10n ** 18n;
+var BPS_DENOM = 10000n;
+var MAX_PENALTY_BPS = 9000n;
+var MAX_HF_WAD = 2n ** 255n - 1n;
+var parseUsdToWad = (value2) => {
+  const trimmed = value2.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new Error(`Invalid USD value: ${value2}`);
+  }
+  const [whole, frac = ""] = trimmed.split(".");
+  const fracPadded = `${frac}000000000000000000`.slice(0, 18);
+  return BigInt(whole) * WAD + BigInt(fracPadded);
+};
+var formatUnits = (value2, decimals, fractionDigits = 4) => {
+  const sign = value2 < 0n ? "-" : "";
+  const abs = value2 < 0n ? -value2 : value2;
+  const base = 10n ** BigInt(decimals);
+  const whole = abs / base;
+  const fractionRaw = abs % base;
+  if (fractionDigits <= 0) {
+    return `${sign}${whole.toString()}`;
+  }
+  const padded = fractionRaw.toString().padStart(decimals, "0");
+  const sliced = padded.slice(0, Math.min(fractionDigits, decimals));
+  const trimmed = sliced.replace(/0+$/, "");
+  if (trimmed.length === 0) {
+    return `${sign}${whole.toString()}`;
+  }
+  return `${sign}${whole.toString()}.${trimmed}`;
+};
+var formatHf = (hfWad) => {
+  if (hfWad >= MAX_HF_WAD / 2n) {
+    return "INF";
+  }
+  return formatUnits(hfWad, 18, 4);
+};
+var bpsToWad = (bps) => BigInt(bps) * 10n ** 14n;
+var buildIntegrityHash = (asset, priceUsd, updatedAt, integritySalt) => keccak256(toBytes(`${asset.toLowerCase()}|${priceUsd}|${updatedAt}|${integritySalt}`));
+var verifyReportIntegrity = (report2, integritySalt) => {
+  if (!report2.integrityHash)
+    return false;
+  const expected = buildIntegrityHash(report2.asset, report2.priceUsd, report2.updatedAt, integritySalt);
+  return expected.toLowerCase() === report2.integrityHash.toLowerCase();
+};
+var normalizeApiReports = (raw, fallbackTimestamp) => {
+  const payload = raw ?? {};
+  const reportTs = typeof payload.timestamp === "number" ? payload.timestamp : fallbackTimestamp;
+  if (Array.isArray(payload.reports)) {
+    return payload.reports.filter((item) => item && (item.asset || item.token)).map((item) => {
+      const asset = ((item.asset ?? item.token) || "").toLowerCase();
+      const price = String(item.priceUsd ?? item.price ?? "0");
+      const updatedAt = Number(item.updatedAt ?? item.timestamp ?? reportTs);
+      const prevPrice = item.prevPriceUsd ?? item.prevPrice;
+      return {
+        asset,
+        priceUsd: price,
+        updatedAt,
+        prevPriceUsd: prevPrice === undefined ? undefined : String(prevPrice),
+        integrityHash: item.integrityHash,
+        source: "api"
+      };
+    });
+  }
+  if (payload.prices && typeof payload.prices === "object") {
+    return Object.entries(payload.prices).map(([asset, price]) => ({
+      asset: asset.toLowerCase(),
+      priceUsd: String(price),
+      updatedAt: reportTs,
+      source: "api"
+    }));
+  }
+  return [];
+};
+var ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+var loadApiReports = (runtime2, config, assets) => {
+  const query = encodeURIComponent(assets.join(","));
+  const url = `${config.dataSources.chainlinkApi.priceApiBaseUrl}${config.dataSources.chainlinkApi.priceApiPath}?assets=${query}`;
+  const raw = runtime2.runInNodeMode((nodeRuntime) => {
+    const client = new ClientCapability3;
+    const response = client.sendRequest(nodeRuntime, {
+      url,
+      method: "GET",
+      headers: {
+        "content-type": "application/json"
+      }
+    }).result();
+    if (!ok(response)) {
+      throw new Error(`Price API failed with status ${response.statusCode}`);
+    }
+    return json(response);
+  }, consensusIdenticalAggregation())().result();
+  return normalizeApiReports(raw, Math.floor(Date.now() / 1000));
+};
+var loadReportsWithFallback = (runtime2, config, chain, assets) => {
+  const onchainOracle = config.dataSources.chainlinkApi.mockOracleAddress;
+  const preferOnchainOracle = config.dataSources.chainlinkApi.preferOnchainOracle ?? false;
+  const loadOnchainOracleReports = () => {
+    if (!onchainOracle)
+      return [];
+    const reports = [];
+    for (const asset of assets) {
+      try {
+        const { priceWad, updatedAt } = readMockOraclePrice(runtime2, chain, onchainOracle, asset);
+        runtime2.log(`On-chain oracle read for ${asset}: price=${formatUnits(priceWad, 18)} updatedAt=${updatedAt}`);
+        if (priceWad <= 0n || updatedAt <= 0) {
+          continue;
+        }
+        reports.push({
+          asset: asset.toLowerCase(),
+          priceUsd: formatUnits(priceWad, 18, 8),
+          updatedAt,
+          source: "oracle"
+        });
+      } catch (error) {
+        runtime2.log(`On-chain oracle read failed for ${asset}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return reports;
+  };
+  const loadApiReportsSafe = () => {
+    try {
+      return loadApiReports(runtime2, config, assets);
+    } catch (error) {
+      runtime2.log(`Price API fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  };
+  const reportMap = new Map;
+  const seedReports = (reports) => {
+    for (const report2 of reports) {
+      const key = report2.asset.toLowerCase();
+      if (!reportMap.has(key)) {
+        reportMap.set(key, report2);
+      }
+    }
+  };
+  if (preferOnchainOracle) {
+    seedReports(loadOnchainOracleReports());
+    if (reportMap.size < assets.length) {
+      seedReports(loadApiReportsSafe());
+    }
+  } else {
+    seedReports(loadApiReportsSafe());
+    if (reportMap.size < assets.length) {
+      seedReports(loadOnchainOracleReports());
+    }
+  }
+  const nowTs = Math.floor(Date.now() / 1000);
+  for (const asset of assets) {
+    const key = asset.toLowerCase();
+    if (reportMap.has(key))
+      continue;
+    const priceUsd = config.dataSources.chainlinkApi.mockPricesUsd[asset.toLowerCase()];
+    if (priceUsd) {
+      reportMap.set(key, {
+        asset: key,
+        priceUsd,
+        updatedAt: nowTs,
+        source: "mock",
+        integrityHash: buildIntegrityHash(asset, priceUsd, nowTs, config.dataSources.chainlinkApi.integritySalt)
+      });
+    }
+  }
+  return Array.from(reportMap.values());
+};
+var computeShockBps = (report2) => {
+  if (!report2.prevPriceUsd)
+    return 0;
+  const nowWad = parseUsdToWad(report2.priceUsd);
+  const prevWad = parseUsdToWad(report2.prevPriceUsd);
+  if (prevWad === 0n)
+    return 0;
+  const diff = nowWad > prevWad ? nowWad - prevWad : prevWad - nowWad;
+  return Number(diff * BPS_DENOM / prevWad);
+};
+var canonicalizeAsset = (asset, crossChainAssetMap) => {
+  const mapped = crossChainAssetMap[asset.toLowerCase()];
+  if (!mapped || !ADDRESS_REGEX.test(mapped)) {
+    return asset.toLowerCase();
+  }
+  return mapped.toLowerCase();
+};
+var inferChainIdFromSelectorName = (selectorName) => {
+  if (!selectorName)
+    return;
+  const key = selectorName.toLowerCase();
+  if (key === "ethereum-testnet-sepolia")
+    return 11155111;
+  if (key === "base-testnet-sepolia" || key === "ethereum-testnet-sepolia-base-1")
+    return 84532;
+  return;
+};
+var evaluateDecision = (weakestEffectiveHfWad, config, snapshots, weakestPositionChainId, weakestPositionChainKey) => {
+  const minHfWad = bpsToWad(config.thresholds.onchainHfMinBps);
+  const earlyHfWad = bpsToWad(config.thresholds.earlyWarningHfBps);
+  const canCrossChain = snapshots.some((snap) => {
+    if (!snap.isConfiguredAdapter || snap.availableCollateral <= 0n) {
+      return false;
+    }
+    if (weakestPositionChainId !== undefined && snap.chainId !== undefined) {
+      return snap.chainId !== weakestPositionChainId;
+    }
+    if (weakestPositionChainKey && snap.chainKey) {
+      return snap.chainKey.toLowerCase() !== weakestPositionChainKey.toLowerCase();
+    }
+    return false;
+  });
+  return decideRoute(weakestEffectiveHfWad, minHfWad, earlyHfWad, config.rescue.allowCrossChain, canCrossChain);
+};
+var decideRoute = (weakestEffectiveHfWad, minHfWad, earlyHfWad, allowCrossChain, canCrossChain) => {
+  if (weakestEffectiveHfWad <= minHfWad || weakestEffectiveHfWad <= earlyHfWad) {
+    if (allowCrossChain && canCrossChain) {
+      return "RESCUE_CROSS_CHAIN";
+    }
+    return "RESCUE_SAME_CHAIN";
+  }
+  return "NO_ACTION";
+};
+var evaluateChainlinkApiGuard = (runtime2, config, user) => {
+  const stalePolicy = config.dataSources.chainlinkApi.stalePolicy ?? "ABORT";
+  const priceReadChain = {
+    chainSelectorName: config.chainSelectorName,
+    isTestnet: config.isTestnet
+  };
+  let snapshots = [];
+  let decimalsByAsset = {};
+  const positionSource = "onchain";
+  const adapterReadErrors = [];
+  const decimalsCache = new Map;
+  for (const adapterCfg of config.monitoring.adapters) {
+    const adapterAddress = adapterCfg.adapterAddress;
+    const adapterChain = {
+      chainSelectorName: adapterCfg.chainSelectorName ?? config.chainSelectorName,
+      isTestnet: adapterCfg.isTestnet ?? config.isTestnet
+    };
+    runtime2.log(`[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} adapter=${adapterAddress}`);
+    let positions = [];
+    let hfWad = MAX_HF_WAD;
+    let availableCollateral = 0n;
+    try {
+      positions = discoverPositions(runtime2, adapterChain, adapterAddress, user);
+      runtime2.log(`[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} positions=${positions.length}`);
+      if (positions.length === 0)
+        continue;
+      for (const position of positions) {
+        availableCollateral += position.collateralAmount;
+        if (position.debtAmount > 0n && position.healthFactor < hfWad) {
+          hfWad = position.healthFactor;
+        }
+        const collateralAsset = position.collateralAsset.toLowerCase();
+        const debtAsset = position.debtAsset.toLowerCase();
+        if (!decimalsCache.has(collateralAsset)) {
+          try {
+            const value2 = readTokenDecimals(runtime2, adapterChain, collateralAsset);
+            decimalsCache.set(collateralAsset, value2);
+            decimalsByAsset[collateralAsset] = value2;
+          } catch {}
+        }
+        if (!decimalsCache.has(debtAsset)) {
+          try {
+            const value2 = readTokenDecimals(runtime2, adapterChain, debtAsset);
+            decimalsCache.set(debtAsset, value2);
+            decimalsByAsset[debtAsset] = value2;
+          } catch {}
+        }
+      }
+    } catch (error) {
+      runtime2.log(`[V1][adapter-read] label=${adapterCfg.label} chain=${adapterChain.chainSelectorName} status=error reason=${error instanceof Error ? error.message : String(error)}`);
+      adapterReadErrors.push(`${adapterCfg.label}@${adapterChain.chainSelectorName}:${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
+    snapshots.push({
+      label: adapterCfg.label,
+      adapterAddress,
+      positions,
+      hfWad,
+      availableCollateral,
+      chainId: inferChainIdFromSelectorName(adapterChain.chainSelectorName),
+      chainKey: adapterChain.chainSelectorName,
+      isConfiguredAdapter: true,
+      rescueTargetChainSelector: adapterCfg.rescueTargetChainSelector
+    });
+  }
+  if (snapshots.length === 0) {
+    runtime2.log("[V1] No positions discovered for monitored adapters.");
+    return {
+      decision: "ABORT",
+      reason: "No positions found for monitored adapters",
+      metadata: {
+        user,
+        positionSource,
+        adapterReadErrors: adapterReadErrors.length
+      },
+      snapshots: [],
+      priceByAsset: {},
+      decimalsByAsset: {}
+    };
+  }
+  const uniqueAssets = new Set;
+  for (const snap of snapshots) {
+    for (const p of snap.positions) {
+      uniqueAssets.add(p.collateralAsset);
+      uniqueAssets.add(p.debtAsset);
+    }
+  }
+  const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
+  const canonicalByAsset = new Map;
+  const canonicalAssets = new Set;
+  for (const asset of uniqueAssets) {
+    const canonical = canonicalizeAsset(asset, crossChainAssetMap);
+    canonicalByAsset.set(asset.toLowerCase(), canonical);
+    canonicalAssets.add(canonical);
+    if (canonical !== asset.toLowerCase()) {
+      runtime2.log(`[V1][asset-map] ${asset.toLowerCase()} -> ${canonical}`);
+    }
+  }
+  const reports = loadReportsWithFallback(runtime2, config, priceReadChain, Array.from(canonicalAssets));
+  const priceByAsset = {};
+  const canonicalReportMap = new Map;
+  const reportMap = new Map;
+  for (const report2 of reports) {
+    canonicalReportMap.set(report2.asset.toLowerCase(), report2);
+  }
+  for (const asset of uniqueAssets) {
+    const normalizedAsset = asset.toLowerCase();
+    const canonicalAsset = canonicalByAsset.get(normalizedAsset) ?? normalizedAsset;
+    const canonicalReport = canonicalReportMap.get(canonicalAsset);
+    if (!canonicalReport) {
+      continue;
+    }
+    const remappedReport = {
+      ...canonicalReport,
+      asset: normalizedAsset
+    };
+    reportMap.set(normalizedAsset, remappedReport);
+    priceByAsset[normalizedAsset] = canonicalReport.priceUsd;
+  }
+  let missingPriceCount = 0;
+  let invalidReportCount = 0;
+  let staleReportCount = 0;
+  let maxShockBps = 0;
+  let maxStalenessPenaltyBps = 0n;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const maxPriceAgeSec = config.dataSources.chainlinkApi.maxPriceAgeSec;
+  const stalenessChecksEnabled = maxPriceAgeSec > 0;
+  if (!stalenessChecksEnabled) {
+    runtime2.log("[V1] Staleness checks disabled (maxPriceAgeSec=0).");
+  }
+  for (const asset of uniqueAssets) {
+    const report2 = reportMap.get(asset.toLowerCase());
+    if (!report2) {
+      runtime2.log(`[V1][price] missing asset=${asset}`);
+      missingPriceCount += 1;
+      continue;
+    }
+    const ageSec = nowSec - report2.updatedAt;
+    const shock = computeShockBps(report2);
+    runtime2.log(`[V1][price] asset=${asset} priceUsd=${report2.priceUsd} source=${report2.source} ageSec=${ageSec} shockBps=${shock}`);
+    const isStale = stalenessChecksEnabled && ageSec > maxPriceAgeSec;
+    if (isStale) {
+      staleReportCount += 1;
+      if (stalePolicy === "ABORT") {
+        continue;
+      }
+      runtime2.log(`[V1] WARN_ONLY: stale price report accepted asset=${asset} ageSec=${ageSec}`);
+    }
+    if (report2.source === "api") {
+      if (!verifyReportIntegrity(report2, config.dataSources.chainlinkApi.integritySalt)) {
+        invalidReportCount += 1;
+        continue;
+      }
+    }
+    const stalenessPenalty = stalenessChecksEnabled ? BigInt(ageSec) * BigInt(config.thresholds.stalePricePenaltyBps) / BigInt(maxPriceAgeSec) : 0n;
+    if (stalenessPenalty > maxStalenessPenaltyBps) {
+      maxStalenessPenaltyBps = stalenessPenalty;
+    }
+    if (shock > maxShockBps) {
+      maxShockBps = shock;
+    }
+  }
+  if (missingPriceCount > 0 && config.monitoring.abortOnMissingPrice) {
+    runtime2.log(`[V1] Abort: missing prices for ${missingPriceCount} assets.`);
+    return {
+      decision: "ABORT",
+      reason: `Missing prices for ${missingPriceCount} assets`,
+      metadata: { missingPriceCount },
+      snapshots,
+      priceByAsset,
+      decimalsByAsset
+    };
+  }
+  if (stalenessChecksEnabled && staleReportCount > 0) {
+    if (stalePolicy === "ABORT") {
+      runtime2.log(`[V1] Abort: stale reports count=${staleReportCount}.`);
+      return {
+        decision: "ABORT",
+        reason: `Stale reports detected: ${staleReportCount}`,
+        metadata: { staleReportCount, stalePolicy },
+        snapshots,
+        priceByAsset,
+        decimalsByAsset
+      };
+    }
+    runtime2.log(`[V1] WARN_ONLY: stale reports count=${staleReportCount}.`);
+  }
+  if (invalidReportCount > 0) {
+    runtime2.log(`[V1] Abort: integrity verification failures=${invalidReportCount}.`);
+    return {
+      decision: "ABORT",
+      reason: `Integrity verification failed for ${invalidReportCount} reports`,
+      metadata: { invalidReportCount },
+      snapshots,
+      priceByAsset,
+      decimalsByAsset
+    };
+  }
+  if (maxShockBps >= config.monitoring.priceShockAbortBps) {
+    runtime2.log(`[V1] Abort: max shock ${maxShockBps} bps exceeded threshold ${config.monitoring.priceShockAbortBps} bps.`);
+    return {
+      decision: "ABORT",
+      reason: `Price shock exceeded abort threshold (${maxShockBps} bps)`,
+      metadata: { maxShockBps, thresholdBps: config.monitoring.priceShockAbortBps },
+      snapshots,
+      priceByAsset,
+      decimalsByAsset
+    };
+  }
+  let decimalsReadErrors = 0;
+  const readDecimalsCached = (asset) => {
+    const key = asset.toLowerCase();
+    const cached = decimalsCache.get(key);
+    if (cached !== undefined)
+      return cached;
+    const fromPositions = decimalsByAsset[key];
+    if (typeof fromPositions === "number" && fromPositions > 0) {
+      decimalsCache.set(key, fromPositions);
+      return fromPositions;
+    }
+    let value2 = 18;
+    try {
+      value2 = readTokenDecimals(runtime2, priceReadChain, key);
+    } catch {
+      decimalsReadErrors += 1;
+    }
+    decimalsCache.set(key, value2);
+    decimalsByAsset[key] = value2;
+    return value2;
+  };
+  let totalEffectiveCollateralUsdWad = 0n;
+  let totalDebtUsdWad = 0n;
+  let positionsAnalyzed = 0;
+  let weakestDebtHfWad = MAX_HF_WAD;
+  let weakestPositionLabel = "";
+  let weakestPositionChainId;
+  let weakestPositionChainKey;
+  runtime2.log(`[V1] User=${user} adaptersWithPositions=${snapshots.length}`);
+  for (const snap of snapshots) {
+    for (const p of snap.positions) {
+      const collateralAsset = p.collateralAsset.toLowerCase();
+      const debtAsset = p.debtAsset.toLowerCase();
+      const collateralReport = reportMap.get(collateralAsset);
+      const debtReport = reportMap.get(debtAsset);
+      if (!collateralReport || !debtReport) {
+        continue;
+      }
+      const collateralPriceWad = parseUsdToWad(collateralReport.priceUsd);
+      const debtPriceWad = parseUsdToWad(debtReport.priceUsd);
+      const collateralDecimals = readDecimalsCached(collateralAsset);
+      const debtDecimals = readDecimalsCached(debtAsset);
+      const collateralUsdWad = p.collateralAmount * collateralPriceWad / 10n ** BigInt(collateralDecimals);
+      const debtUsdWad = p.debtAmount * debtPriceWad / 10n ** BigInt(debtDecimals);
+      const effectiveCollateralUsdWad = collateralUsdWad * p.liquidationThresholdBps / BPS_DENOM;
+      const positionHfWad = debtUsdWad == 0n ? MAX_HF_WAD : effectiveCollateralUsdWad * WAD / debtUsdWad;
+      if (debtUsdWad > 0n && positionHfWad < weakestDebtHfWad) {
+        weakestDebtHfWad = positionHfWad;
+        weakestPositionLabel = snap.label;
+        weakestPositionChainId = snap.chainId;
+        weakestPositionChainKey = snap.chainKey;
+      }
+      totalEffectiveCollateralUsdWad += effectiveCollateralUsdWad;
+      totalDebtUsdWad += debtUsdWad;
+      positionsAnalyzed += 1;
+      runtime2.log(`[V1][position] adapter=${snap.label} collAsset=${collateralAsset} debtAsset=${debtAsset} collAmt=${formatUnits(p.collateralAmount, collateralDecimals, 4)} debtAmt=${formatUnits(p.debtAmount, debtDecimals, 4)} collUsd=${formatUnits(collateralUsdWad, 18, 2)} debtUsd=${formatUnits(debtUsdWad, 18, 2)} effCollUsd=${formatUnits(effectiveCollateralUsdWad, 18, 2)} positionHF=${formatHf(positionHfWad)}`);
+    }
+  }
+  const aggregateHfWad = totalDebtUsdWad === 0n ? MAX_HF_WAD : totalEffectiveCollateralUsdWad * WAD / totalDebtUsdWad;
+  const slopePenaltyBps = BigInt(Math.min(config.thresholds.slopePenaltyBps, Math.floor(maxShockBps / 2)));
+  const totalPenaltyBps = maxStalenessPenaltyBps + slopePenaltyBps > MAX_PENALTY_BPS ? MAX_PENALTY_BPS : maxStalenessPenaltyBps + slopePenaltyBps;
+  const effectiveHfWad = aggregateHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
+  const weakestEffectiveHfWad = weakestDebtHfWad >= MAX_HF_WAD / 2n ? MAX_HF_WAD : weakestDebtHfWad * (BPS_DENOM - totalPenaltyBps) / BPS_DENOM;
+  const decision = evaluateDecision(weakestEffectiveHfWad, config, snapshots, weakestPositionChainId, weakestPositionChainKey);
+  const aggregateHf = formatHf(aggregateHfWad);
+  const effectiveHf = formatHf(effectiveHfWad);
+  const weakestHf = formatHf(weakestDebtHfWad);
+  const weakestEffectiveHf = formatHf(weakestEffectiveHfWad);
+  const totalEffectiveCollateralUsd = formatUnits(totalEffectiveCollateralUsdWad, 18, 2);
+  const totalDebtUsd = formatUnits(totalDebtUsdWad, 18, 2);
+  runtime2.log(`[V1][summary] positions=${positionsAnalyzed} totalEffectiveCollUsd=${totalEffectiveCollateralUsd} totalDebtUsd=${totalDebtUsd} aggregateHF=${aggregateHf} weakestHF=${weakestHf} stalenessPenaltyBps=${Number(maxStalenessPenaltyBps)} slopePenaltyBps=${Number(slopePenaltyBps)} effectiveHF=${effectiveHf} weakestEffectiveHF=${weakestEffectiveHf} decision=${decision}`);
+  return {
+    decision,
+    reason: `Guard evaluated with weakest effective HF ${weakestEffectiveHf} (aggregate ${effectiveHf})`,
+    metadata: {
+      user,
+      positionSource,
+      adaptersMonitored: snapshots.length,
+      positionsAnalyzed,
+      reportsUsed: reports.length,
+      aggregateHf,
+      effectiveHf,
+      weakestHf,
+      weakestEffectiveHf,
+      weakestPositionLabel,
+      totalEffectiveCollateralUsd,
+      totalDebtUsd,
+      stalenessPenaltyBps: Number(maxStalenessPenaltyBps),
+      slopePenaltyBps: Number(slopePenaltyBps),
+      maxShockBps,
+      stalePolicy,
+      staleReportCount,
+      adapterReadErrors: adapterReadErrors.length,
+      decimalsReadErrors
+    },
+    snapshots,
+    priceByAsset,
+    decimalsByAsset
+  };
+};
+var WAD2 = 10n ** 18n;
+var BPS_DENOM2 = 10000n;
+var ZERO_BYTES32 = "0x0000000000000000000000000000000000000000000000000000000000000000";
+var asAddress = (value2) => {
+  if (typeof value2 !== "string")
+    return;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(value2))
+    return;
+  return value2;
+};
+var asBytes32 = (value2) => {
+  if (typeof value2 !== "string")
+    return;
+  if (!/^0x[a-fA-F0-9]{64}$/.test(value2))
+    return;
+  return value2;
+};
+var asBigInt = (value2) => {
+  if (typeof value2 === "bigint")
+    return value2;
+  if (typeof value2 === "number" && Number.isFinite(value2) && value2 >= 0) {
+    return BigInt(Math.floor(value2));
+  }
+  if (typeof value2 === "string" && /^[0-9]+$/.test(value2)) {
+    return BigInt(value2);
+  }
+  return;
+};
+var asGasLimit = (value2) => {
+  const parsed = asBigInt(value2);
+  if (parsed === undefined || parsed <= 0n)
+    return;
+  return parsed.toString();
+};
+var asBoolean = (value2) => {
+  if (typeof value2 === "boolean")
+    return value2;
+  if (value2 === "true")
+    return true;
+  if (value2 === "false")
+    return false;
+  return;
+};
+var asNumber = (value2) => {
+  if (typeof value2 === "number" && Number.isFinite(value2))
+    return value2;
+  if (typeof value2 === "string" && value2.trim().length > 0) {
+    const parsed = Number(value2);
+    if (Number.isFinite(parsed))
+      return parsed;
+  }
+  return;
+};
+var asRunMode = (value2, fallback) => {
+  if (value2 === "execute" || value2 === "monitor_only" || value2 === "dry_run") {
+    return value2;
+  }
+  return fallback;
+};
+var modeToEnum = (mode) => mode === "TOP_UP" ? 0 : 1;
+var minBigInt = (a, b) => a < b ? a : b;
+var toUsdWad = (amount, decimals, priceUsdWad) => {
+  if (amount <= 0n || priceUsdWad <= 0n)
+    return 0n;
+  return amount * priceUsdWad / 10n ** BigInt(decimals);
+};
+var wadToFixed = (wad, fractionDigits = 4) => {
+  const sign = wad < 0n ? "-" : "";
+  const abs = wad < 0n ? -wad : wad;
+  const whole = abs / WAD2;
+  if (fractionDigits <= 0)
+    return `${sign}${whole.toString()}`;
+  const fracBase = 10n ** BigInt(18 - fractionDigits);
+  const frac = abs % WAD2 / fracBase;
+  return `${sign}${whole.toString()}.${frac.toString().padStart(fractionDigits, "0")}`;
+};
+var fromUsdWadToAmount = (usdWad, decimals, priceUsdWad) => {
+  if (usdWad <= 0n || priceUsdWad <= 0n)
+    return 0n;
+  return usdWad * 10n ** BigInt(decimals) / priceUsdWad;
+};
+var sortByRiskAscending = (a, b) => {
+  if (a.position.healthFactor === b.position.healthFactor)
+    return 0;
+  return a.position.healthFactor < b.position.healthFactor ? -1 : 1;
+};
+var flattenPositions = (snapshots) => {
+  const flat = [];
+  for (const snap of snapshots) {
+    for (const position of snap.positions) {
+      flat.push({
+        label: snap.label,
+        adapterAddress: snap.adapterAddress,
+        availableCollateral: snap.availableCollateral,
+        chainId: snap.chainId,
+        chainKey: snap.chainKey,
+        isConfiguredAdapter: snap.isConfiguredAdapter,
+        rescueTargetChainSelector: snap.rescueTargetChainSelector,
+        position
+      });
+    }
+  }
+  return flat;
+};
+var canonicalAsset = (asset, crossChainAssetMap) => {
+  const key = asset.toLowerCase();
+  const mapped = crossChainAssetMap[key];
+  return (mapped ?? key).toLowerCase();
+};
+var isSameChain = (a, b) => {
+  if (a.chainId !== undefined && b.chainId !== undefined) {
+    return a.chainId === b.chainId;
+  }
+  if (a.chainKey && b.chainKey) {
+    return a.chainKey.toLowerCase() === b.chainKey.toLowerCase();
+  }
+  return true;
+};
+var inferRescueModeFromPositions = (source, target, crossChainAssetMap) => {
+  const srcCollateral = canonicalAsset(source.position.collateralAsset, crossChainAssetMap);
+  const srcDebt = canonicalAsset(source.position.debtAsset, crossChainAssetMap);
+  const tgtCollateral = canonicalAsset(target.position.collateralAsset, crossChainAssetMap);
+  const tgtDebt = canonicalAsset(target.position.debtAsset, crossChainAssetMap);
+  if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
+    return "TOP_UP";
+  }
+  if (srcCollateral === tgtDebt && srcDebt === tgtCollateral) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtDebt) {
+    return "REPAY";
+  }
+  if (srcCollateral === tgtCollateral) {
+    return "TOP_UP";
+  }
+  return;
+};
+var describePlan = (step, mode, execId) => JSON.stringify({
+  execId,
+  mode,
+  sourceAdapter: step.sourceAdapter,
+  targetAdapter: step.targetAdapter,
+  collateralAsset: step.collateralAsset,
+  debtAsset: step.debtAsset,
+  collateralAmount: step.collateralAmount.toString(),
+  debtAmount: step.debtAmount.toString(),
+  isCrossChain: step.isCrossChain,
+  targetChain: step.targetChain.toString()
+});
+var estimateNeededAction = (mode, target, targetHfBps, getPriceWad, getDecimals) => {
+  const collateralPriceWad = getPriceWad(target.position.collateralAsset);
+  const debtPriceWad = getPriceWad(target.position.debtAsset);
+  const collateralDecimals = getDecimals(target.position.collateralAsset);
+  const debtDecimals = getDecimals(target.position.debtAsset);
+  const targetHfWad = BigInt(targetHfBps) * 10n ** 14n;
+  if (!collateralPriceWad || !debtPriceWad || targetHfWad == 0n) {
+    return mode === "TOP_UP" ? target.position.collateralAmount / 10n : target.position.debtAmount / 5n;
+  }
+  const collateralUsdWad = toUsdWad(target.position.collateralAmount, collateralDecimals, collateralPriceWad);
+  const debtUsdWad = toUsdWad(target.position.debtAmount, debtDecimals, debtPriceWad);
+  const effectiveCollateralUsdWad = collateralUsdWad * target.position.liquidationThresholdBps / BPS_DENOM2;
+  if (mode === "TOP_UP") {
+    const wantedEffectiveCollateralUsdWad = targetHfWad * debtUsdWad / WAD2;
+    if (wantedEffectiveCollateralUsdWad <= effectiveCollateralUsdWad)
+      return 0n;
+    const deltaEffectiveUsdWad = wantedEffectiveCollateralUsdWad - effectiveCollateralUsdWad;
+    if (target.position.liquidationThresholdBps == 0n)
+      return 0n;
+    const deltaCollateralUsdWad = deltaEffectiveUsdWad * BPS_DENOM2 / target.position.liquidationThresholdBps;
+    return fromUsdWadToAmount(deltaCollateralUsdWad, collateralDecimals, collateralPriceWad);
+  }
+  const maxDebtUsdAtTarget = effectiveCollateralUsdWad * WAD2 / targetHfWad;
+  if (debtUsdWad <= maxDebtUsdAtTarget)
+    return 0n;
+  const debtReductionUsdWad = debtUsdWad - maxDebtUsdAtTarget;
+  return fromUsdWadToAmount(debtReductionUsdWad, debtDecimals, debtPriceWad);
+};
+var statusLabel = (status) => {
+  if (status === 0n)
+    return "None";
+  if (status === 1n)
+    return "InProgress";
+  if (status === 2n)
+    return "Completed";
+  if (status === 3n)
+    return "Partial";
+  if (status === 4n)
+    return "Failed";
+  if (status === 5n)
+    return "Cancelled";
+  return `Unknown(${status.toString()})`;
+};
+var normalizeStatus = (value2) => {
+  if (typeof value2 === "bigint")
+    return value2;
+  if (typeof value2 === "number")
+    return BigInt(Math.trunc(value2));
+  return BigInt(value2);
+};
+var toExecutionId = (provided, strategyId, user, mode, trigger) => {
+  if (provided)
+    return provided;
+  const minuteBucket = Math.floor(Date.now() / 60000);
+  return keccak256(toBytes(`${strategyId}|${user.toLowerCase()}|${mode}|${trigger}|${minuteBucket}`));
+};
+var buildNoAction = (strategyId, trigger, executionId, decision, reason, metadata, settlementState = "NONE") => buildEnvelope({
+  executionId,
+  strategyId,
+  trigger,
+  decision,
+  reason,
+  settlementState,
+  metadata
+});
+var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
+  const chain = { chainSelectorName: config.chainSelectorName, isTestnet: config.isTestnet };
+  const user = asAddress(body.user) ?? config.monitoring.defaultUser;
+  const runMode = asRunMode(body.runMode, trigger === "http" ? "execute" : "monitor_only");
+  const providedExecutionId = asBytes32(body.executionId);
+  const maxFee = asBigInt(body.maxFeeWei) ?? BigInt(config.budget.maxNativeFeeWei);
+  const deadlineSec = Number(asBigInt(body.deadlineSeconds) ?? BigInt(config.crossChain.deliveryTimeoutSec));
+  const nowSec = Math.floor(Date.now() / 1000);
+  const baseExecId = toExecutionId(providedExecutionId, config.strategyId, user, config.rescue.defaultMode, trigger);
+  const guard = evaluateChainlinkApiGuard(runtime2, config, user);
+  if (guard.decision === "ABORT" || guard.decision === "NO_ACTION") {
+    return buildNoAction(config.strategyId, trigger, baseExecId, guard.decision, guard.reason, {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED",
+      ...guard.metadata
+    });
+  }
+  let inProgress = false;
+  try {
+    inProgress = readRescueInProgress(runtime2, chain, config.contracts.rescueExecutor, user);
+  } catch (error) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Unable to read rescue lock state", {
+      user,
+      runMode,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (inProgress) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Rescue already in progress for user", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  const pendingExecId = asBytes32(body.pendingExecId);
+  if (pendingExecId) {
+    let pendingStatus = 0n;
+    let pendingMessageId = ZERO_BYTES32;
+    try {
+      pendingStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, pendingExecId));
+      pendingMessageId = readCcipMessageId(runtime2, chain, config.contracts.rescueExecutor, pendingExecId);
+    } catch {}
+    if (pendingStatus === 2n && pendingMessageId !== ZERO_BYTES32) {
+      return buildNoAction(config.strategyId, trigger, baseExecId, "NO_ACTION", "Pending cross-chain settlement exists", {
+        user,
+        runMode,
+        pendingExecId,
+        pendingMessageId
+      }, "DISPATCHED");
+    }
+  }
+  const allFlat = flattenPositions(guard.snapshots);
+  const debtBearing = allFlat.filter((p) => p.position.debtAmount > 0n);
+  if (debtBearing.length === 0) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No debt-bearing positions found for rescue planning", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  debtBearing.sort(sortByRiskAscending);
+  const targetAdapterOverride = asAddress(body.targetAdapter);
+  const sourceAdapterOverride = asAddress(body.sourceAdapter);
+  const forceCrossChain = asBoolean(body.forceCrossChain) ?? false;
+  const target = debtBearing.find((p) => !targetAdapterOverride || p.adapterAddress === targetAdapterOverride) ?? debtBearing[0];
+  const crossChainAssetMap = config.dataSources.chainlinkApi.crossChainAssetMap ?? {};
+  const executionChainKey = config.chainSelectorName.toLowerCase();
+  const sourcePool = allFlat.filter((p) => p.adapterAddress !== target.adapterAddress && p.availableCollateral > 0n && p.isConfiguredAdapter && (p.chainKey ? p.chainKey.toLowerCase() === executionChainKey : true));
+  const sourceCandidates = [];
+  for (const source2 of sourcePool) {
+    const inferred = inferRescueModeFromPositions(source2, target, crossChainAssetMap);
+    if (!inferred)
+      continue;
+    sourceCandidates.push({ source: source2, mode: inferred });
+  }
+  if (sourceCandidates.length === 0) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No compatible rescue source with withdrawable collateral on execution chain", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED",
+      executionChain: config.chainSelectorName
+    });
+  }
+  const chooseHighestCollateral = (list) => {
+    let best;
+    for (const item of list) {
+      if (sourceAdapterOverride && item.source.adapterAddress !== sourceAdapterOverride)
+        continue;
+      if (!best || item.source.availableCollateral > best.source.availableCollateral)
+        best = item;
+    }
+    return best;
+  };
+  const selected = chooseHighestCollateral(sourceCandidates);
+  if (!selected) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "No eligible source after same-chain-first selection", {
+      user,
+      runMode,
+      rescueModePolicy: "AUTO_INFERRED"
+    });
+  }
+  const source = selected.source;
+  let useCrossChain = !isSameChain(source, target);
+  if (forceCrossChain) {
+    useCrossChain = true;
+  }
+  if (useCrossChain && !config.rescue.allowCrossChain) {
+    return buildNoAction(config.strategyId, trigger, baseExecId, "ABORT", "Cross-chain rescue required by source/target location but disabled by policy", {
+      user,
+      sourceChainKey: source.chainKey ?? "unknown",
+      targetChainKey: target.chainKey ?? "unknown"
+    });
+  }
+  const mode = selected.mode;
+  const execId = toExecutionId(providedExecutionId, config.strategyId, user, mode, trigger);
+  let existingStatus = 0n;
+  try {
+    existingStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId));
+  } catch (error) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Unable to read rescue status", {
+      user,
+      runMode,
+      rescueMode: mode,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (existingStatus !== 0n) {
+    return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Execution id already used", {
+      user,
+      runMode,
+      rescueMode: mode,
+      status: statusLabel(existingStatus)
+    });
+  }
+  const decimalsCache = new Map;
+  const getDecimals = (asset) => {
+    const key = asset.toLowerCase();
+    const cached = decimalsCache.get(key);
+    if (cached !== undefined)
+      return cached;
+    const fromGuard = guard.decimalsByAsset[key];
+    if (typeof fromGuard === "number" && fromGuard > 0) {
+      decimalsCache.set(key, fromGuard);
+      return fromGuard;
+    }
+    try {
+      const value2 = readTokenDecimals(runtime2, chain, asset);
+      decimalsCache.set(key, value2);
+      return value2;
+    } catch {
+      decimalsCache.set(key, 18);
+      return 18;
+    }
+  };
+  const getPriceWad = (asset) => {
+    const raw = guard.priceByAsset[asset.toLowerCase()];
+    if (!raw)
+      return;
+    try {
+      return parseUsdToWad(raw);
+    } catch {
+      return;
+    }
+  };
+  const destinationChain = useCrossChain ? asBigInt(body.targetChainSelector) ?? (source.rescueTargetChainSelector ? BigInt(source.rescueTargetChainSelector) : BigInt(config.crossChain.destinationChainSelector)) : 0n;
+  const targetAdapter = targetAdapterOverride ?? target.adapterAddress;
+  const sourceAsset = source.position.collateralAsset;
+  const defaultTargetAsset = mode === "TOP_UP" ? asAddress(body.targetCollateralAsset) ?? target.position.collateralAsset : asAddress(body.targetDebtAsset) ?? target.position.debtAsset;
+  if (!useCrossChain && sourceAsset.toLowerCase() !== defaultTargetAsset.toLowerCase()) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "No-swap compatibility failed for same-chain rescue", {
+      user,
+      sourceAsset,
+      targetAsset: defaultTargetAsset,
+      mode
+    });
+  }
+  const desiredAmount = asBigInt(body.transferAmount) ?? estimateNeededAction(mode, target, config.thresholds.earlyWarningHfBps, getPriceWad, getDecimals);
+  const reserveSafeSource = source.availableCollateral * BigInt(1e4 - config.rescue.reserveCapBps) / BPS_DENOM2;
+  let sourceHfSafeCap = source.availableCollateral;
+  const sourceFloorHfBps = Number(asBigInt(body.sourceFloorHfBps) ?? BigInt(config.thresholds.earlyWarningHfBps));
+  if (sourceFloorHfBps > 0) {
+    const sourcePrice2 = getPriceWad(source.position.collateralAsset);
+    const sourceDebtPrice = getPriceWad(source.position.debtAsset);
+    if (sourcePrice2 && sourceDebtPrice && source.position.debtAmount > 0n) {
+      const sourceCollDecimals = getDecimals(source.position.collateralAsset);
+      const sourceDebtDecimals = getDecimals(source.position.debtAsset);
+      const sourceCollUsdWad = toUsdWad(source.position.collateralAmount, sourceCollDecimals, sourcePrice2);
+      const sourceDebtUsdWad = toUsdWad(source.position.debtAmount, sourceDebtDecimals, sourceDebtPrice);
+      const sourceEffectiveCollUsdWad = sourceCollUsdWad * source.position.liquidationThresholdBps / BPS_DENOM2;
+      const floorHfWad = BigInt(sourceFloorHfBps) * 10n ** 14n;
+      const minEffectiveCollAtFloorUsdWad = floorHfWad * sourceDebtUsdWad / WAD2;
+      if (source.position.liquidationThresholdBps == 0n || sourceEffectiveCollUsdWad <= minEffectiveCollAtFloorUsdWad) {
+        sourceHfSafeCap = 0n;
+      } else {
+        const headroomEffectiveUsdWad = sourceEffectiveCollUsdWad - minEffectiveCollAtFloorUsdWad;
+        const headroomCollateralUsdWad = headroomEffectiveUsdWad * BPS_DENOM2 / source.position.liquidationThresholdBps;
+        sourceHfSafeCap = fromUsdWadToAmount(headroomCollateralUsdWad, sourceCollDecimals, sourcePrice2);
+      }
+    }
+  }
+  let actionAmount = minBigInt(desiredAmount, minBigInt(reserveSafeSource, sourceHfSafeCap));
+  const sourcePrice = getPriceWad(sourceAsset);
+  const sourceDecimals = getDecimals(sourceAsset);
+  const minActionUsd = Math.max(0, Math.trunc(asNumber(body.minActionUsd) ?? config.rescue.minActionUsd));
+  let actionUsdWad = 0n;
+  if (sourcePrice) {
+    actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
+    const maxNotionalUsdWad = BigInt(Math.max(0, Math.trunc(config.budget.maxRescueNotionalUsd))) * WAD2;
+    if (actionUsdWad > maxNotionalUsdWad) {
+      actionAmount = fromUsdWadToAmount(maxNotionalUsdWad, sourceDecimals, sourcePrice);
+      actionUsdWad = toUsdWad(actionAmount, sourceDecimals, sourcePrice);
+    }
+  }
+  if (actionAmount <= 0n) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Computed rescue amount is zero after constraints", {
+      user,
+      mode,
+      desiredAmount: desiredAmount.toString(),
+      reserveSafeSource: reserveSafeSource.toString(),
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
+      sourceFloorHfBps,
+      ...guard.metadata
+    });
+  }
+  if (sourcePrice && minActionUsd > 0) {
+    const minActionUsdWad = BigInt(minActionUsd) * WAD2;
+    if (actionUsdWad < minActionUsdWad) {
+      return buildNoAction(config.strategyId, trigger, execId, "NO_ACTION", "Computed rescue amount below minimum action threshold", {
+        user,
+        runMode,
+        mode,
+        actionAmount: actionAmount.toString(),
+        actionUsd: wadToFixed(actionUsdWad, 6),
+        minActionUsd,
+        ...guard.metadata
+      });
+    }
+  }
+  const step = {
+    stepIndex: 0n,
+    sourceAdapter: source.adapterAddress,
+    targetAdapter,
+    collateralAsset: sourceAsset,
+    debtAsset: mode === "REPAY" ? defaultTargetAsset : target.position.debtAsset,
+    collateralAmount: actionAmount,
+    debtAmount: mode === "REPAY" ? actionAmount : 0n,
+    isCrossChain: useCrossChain,
+    targetChain: destinationChain
+  };
+  if (useCrossChain && destinationChain === 0n) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Cross-chain selected but target chain selector is missing", {
+      user,
+      mode
+    });
+  }
+  runtime2.log(`Planning rescue with step: ${describePlan(step, mode, execId)}`);
+  const plan = {
+    execId,
+    user,
+    mode: modeToEnum(mode),
+    steps: [step],
+    deadline: BigInt(nowSec + 1e9),
+    maxFee
+  };
+  if (runMode !== "execute") {
+    return buildEnvelope({
+      executionId: execId,
+      strategyId: config.strategyId,
+      trigger,
+      decision: useCrossChain ? "RESCUE_CROSS_CHAIN" : "RESCUE_SAME_CHAIN",
+      reason: "Rescue plan created (execution skipped by runMode)",
+      settlementState: "NONE",
+      metadata: {
+        user,
+        runMode,
+        rescueMode: mode,
+        plannedCrossChain: useCrossChain,
+        planPreview: describePlan(step, mode, execId)
+      }
+    });
+  }
+  let txHash;
+  const reportReceiver = asAddress(body.workflowReceiver) ?? (asAddress(config.contracts.workflowReceiver) ?? asAddress(config.contracts.rescueReporter));
+  if (!reportReceiver) {
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "Workflow receiver is not configured", {
+      user,
+      runMode,
+      rescueMode: mode
+    });
+  }
+  const reportGasLimit = asGasLimit(body.reportGasLimit) ?? (useCrossChain ? "3500000" : "2500000");
+  try {
+    txHash = submitRescuePlanReport(runtime2, chain, reportReceiver, plan, reportGasLimit);
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const manualFallback = errMsg.includes("writeReport") && errMsg.includes("unavailable");
+    if (manualFallback) {
+      return buildNoAction(config.strategyId, trigger, execId, "ABORT", "CRE runtime cannot submit signed reports in current SDK; execute rescue via Forge script", {
+        user,
+        runMode,
+        rescueMode: mode,
+        plannedCrossChain: useCrossChain,
+        planPreview: describePlan(step, mode, execId),
+        recommendedScript: "contracts/script/reprieve/ExecuteSameChainRescueFromPlan.s.sol",
+        error: errMsg
+      });
+    }
+    return buildNoAction(config.strategyId, trigger, execId, "ABORT", "executeRescue reverted", {
+      user,
+      runMode,
+      rescueMode: mode,
+      error: errMsg
+    });
+  }
+  let messageId = ZERO_BYTES32;
+  let finalStatus = 0n;
+  try {
+    messageId = readCcipMessageId(runtime2, chain, config.contracts.rescueExecutor, execId);
+  } catch {}
+  try {
+    finalStatus = normalizeStatus(readRescueStatus(runtime2, chain, config.contracts.rescueExecutor, execId));
+  } catch {}
+  const settlementState = useCrossChain && messageId !== ZERO_BYTES32 ? "DISPATCHED" : finalStatus === 2n || finalStatus === 3n ? "DELIVERED_SUCCESS" : "NONE";
+  return buildEnvelope({
+    executionId: execId,
+    strategyId: config.strategyId,
+    trigger,
+    decision: useCrossChain ? "RESCUE_CROSS_CHAIN" : "RESCUE_SAME_CHAIN",
+    reason: "Rescue report submitted",
+    settlementState,
+    txRefs: [
+      {
+        chainSelectorName: config.chainSelectorName,
+        txHash,
+        label: "writeReport(onReport)"
+      }
+    ],
+    metadata: {
+      user,
+      runMode,
+      reportReceiver,
+      rescueMode: mode,
+      sourceAdapter: step.sourceAdapter,
+      targetAdapter: step.targetAdapter,
+      sourceAsset: step.collateralAsset,
+      targetAsset: defaultTargetAsset,
+      amount: actionAmount.toString(),
+      sourceFloorHfBps,
+      sourceHfSafeCap: sourceHfSafeCap.toString(),
+      crossChain: useCrossChain,
+      targetChain: destinationChain.toString(),
+      ccipMessageId: messageId,
+      sourceRescueStatus: statusLabel(finalStatus),
+      preSimSkipped: true
+    }
+  });
+};
+var reconcileChainlinkApiGuardLog = (runtime2, config, payload) => {
+  const terminal = decodeCrossChainTerminalEvent(payload);
+  if (terminal) {
+    if (terminal.status === "SUCCESS") {
+      return buildEnvelope({
+        executionId: terminal.execId,
+        strategyId: config.strategyId,
+        trigger: "evm_log",
+        decision: "NO_ACTION",
+        reason: "Cross-chain leg completed on destination",
+        settlementState: "DELIVERED_SUCCESS",
+        metadata: {
+          messageId: terminal.messageId,
+          amountReceived: terminal.amountReceived?.toString() ?? "0"
+        }
+      });
+    }
+    let escrowId = ZERO_BYTES32;
+    try {
+      const failed = readFailedMessage(runtime2, { chainSelectorName: config.chainSelectorName, isTestnet: config.isTestnet }, config.contracts.ccipReceiver, terminal.messageId);
+      escrowId = failed.escrowId;
+    } catch {}
+    return buildEnvelope({
+      executionId: terminal.execId,
+      strategyId: config.strategyId,
+      trigger: "evm_log",
+      decision: "ABORT",
+      reason: terminal.reason ?? "Cross-chain destination failure",
+      settlementState: "DELIVERED_FAILED",
+      metadata: {
+        messageId: terminal.messageId,
+        escrowId
+      }
+    });
+  }
+  const decoded = decodeReprieveEvent(payload);
+  if (!decoded) {
+    return buildNoAction(config.strategyId, "evm_log", `evm-log-${Date.now()}`, "NO_ACTION", "Ignored non-Reprieve event", {});
+  }
+  if (decoded.eventName === "CrossChainInitiated") {
+    return buildNoAction(config.strategyId, "evm_log", String(decoded.args.execId ?? `evm-log-${Date.now()}`), "NO_ACTION", "Cross-chain dispatch initiated", {
+      messageId: String(decoded.args.ccipMessageId ?? ZERO_BYTES32)
+    }, "DISPATCHED");
+  }
+  if (decoded.eventName === "RescueCompleted") {
+    return buildNoAction(config.strategyId, "evm_log", String(decoded.args.execId ?? `evm-log-${Date.now()}`), "NO_ACTION", "Rescue completed", {}, "DELIVERED_SUCCESS");
+  }
+  if (decoded.eventName === "RescueFailed") {
+    return buildNoAction(config.strategyId, "evm_log", String(decoded.args.execId ?? `evm-log-${Date.now()}`), "ABORT", "Rescue failed", {}, "DELIVERED_FAILED");
+  }
+  return buildNoAction(config.strategyId, "evm_log", String(decoded.args.execId ?? `evm-log-${Date.now()}`), "NO_ACTION", `Observed ${decoded.eventName}`, {});
+};
+var clamp = (value2, min, max) => Math.min(max, Math.max(min, value2));
+var toNumber = (value2) => {
+  if (typeof value2 === "number" && Number.isFinite(value2))
+    return value2;
+  if (typeof value2 === "string" && value2.trim().length > 0) {
+    const parsed = Number(value2);
+    if (Number.isFinite(parsed))
+      return parsed;
+  }
+  return;
+};
+var readAbsBps = (value2, fallback) => {
+  const parsed = toNumber(value2);
+  if (parsed === undefined)
+    return Math.abs(Math.trunc(fallback));
+  return Math.abs(Math.trunc(parsed));
+};
+var readDecisionMode = (raw) => {
+  if (typeof raw !== "string")
+    return "APPLY";
+  const normalized = raw.trim().toUpperCase();
+  if (normalized === "LOG_ONLY")
+    return "LOG_ONLY";
+  return "APPLY";
+};
+var evaluateBasisLiquiditySignal = (runtime2, body, config) => {
+  const thresholds = config.thresholds;
+  const weights = config.dataSources.quantBasisLiquidity;
+  const decisionMode = readDecisionMode(body.quantDecisionMode);
+  const basisInputBps = readAbsBps(body.mockBasisStressBps ?? body.basisStressBps ?? body.basisBps, Math.floor(thresholds.basisStressBps * 0.7));
+  const liquidityInputBps = readAbsBps(body.mockLiquidityStressBps ?? body.liquidityStressBps ?? body.depthStressBps, Math.floor(thresholds.liquidityStressBps * 0.7));
+  const takerImbalanceInputBps = readAbsBps(body.mockTakerImbalanceBps ?? body.takerImbalanceBps ?? body.takerFlowBps, Math.floor(thresholds.takerImbalanceBps * 0.7));
+  const regimeExtremeInputBps = readAbsBps(body.mockRegimeExtremeBps ?? body.regimeExtremeBps ?? body.regimeBps, Math.floor(thresholds.regimeExtremeBps * 0.7));
+  const weighted = basisInputBps * weights.basisWeightBps + liquidityInputBps * weights.liquidityWeightBps + takerImbalanceInputBps * weights.takerFlowWeightBps;
+  const stressScoreBps = Math.floor(weighted / 1e4) + Math.floor(regimeExtremeInputBps / 4);
+  const applyFactorBps = decisionMode === "APPLY" ? 4500 : 0;
+  const earlyWarningBoostBps = Math.floor(stressScoreBps * applyFactorBps / 1e4);
+  const adjustedEarlyWarningHfBps = clamp(thresholds.earlyWarningHfBps + earlyWarningBoostBps, thresholds.onchainHfMinBps, 20000);
+  const severity = stressScoreBps >= Math.max(thresholds.basisStressBps, thresholds.liquidityStressBps) ? "HIGH" : stressScoreBps >= Math.floor(Math.max(thresholds.basisStressBps, thresholds.liquidityStressBps) / 2) ? "MEDIUM" : "LOW";
+  runtime2.log(`[QUANT_BASIS_LIQUIDITY_V1][signal] mode=${decisionMode} basisStressBps=${basisInputBps} liquidityStressBps=${liquidityInputBps} takerImbalanceBps=${takerImbalanceInputBps} regimeExtremeBps=${regimeExtremeInputBps}`);
+  runtime2.log(`[QUANT_BASIS_LIQUIDITY_V1][signal] weights basis=${weights.basisWeightBps} liquidity=${weights.liquidityWeightBps} takerFlow=${weights.takerFlowWeightBps} stressScoreBps=${stressScoreBps} severity=${severity}`);
+  runtime2.log(`[QUANT_BASIS_LIQUIDITY_V1][signal] earlyWarning base=${thresholds.earlyWarningHfBps} boost=${earlyWarningBoostBps} adjusted=${adjustedEarlyWarningHfBps}`);
+  return {
+    decisionMode,
+    basisInputBps,
+    liquidityInputBps,
+    takerImbalanceInputBps,
+    regimeExtremeInputBps,
+    stressScoreBps,
+    earlyWarningBoostBps,
+    adjustedEarlyWarningHfBps,
+    severity
+  };
+};
+var buildBasisLiquidityGuardConfig = (config, signal) => ({
+  ...config,
+  strategyId: "CHAINLINK_API_GUARD_V1",
+  thresholds: {
+    onchainHfMinBps: config.thresholds.onchainHfMinBps,
+    earlyWarningHfBps: signal.adjustedEarlyWarningHfBps,
+    stalePricePenaltyBps: 0,
+    slopePenaltyBps: 0
+  },
+  monitoring: config.monitoring
+});
 var PROFILE_ID = "QUANT_BASIS_LIQUIDITY_V1";
 var onHttpTrigger = (runtime2, payload) => {
   const body = parseHttpInput(payload);
-  const executionId = typeof body.executionId === "string" && body.executionId.length > 0 ? body.executionId : `${PROFILE_ID}-${Date.now()}`;
   runtime2.log(`[${PROFILE_ID}] HTTP trigger received`);
+  const quantSignal = evaluateBasisLiquiditySignal(runtime2, body, runtime2.config);
+  const guardConfig = buildBasisLiquidityGuardConfig(runtime2.config, quantSignal);
+  const envelope = runChainlinkApiGuardFlow(runtime2, guardConfig, "http", body);
   return safeJson(buildEnvelope({
-    executionId,
+    ...envelope,
     strategyId: PROFILE_ID,
-    trigger: "http",
-    decision: "NO_ACTION",
-    reason: "Slide 0 skeleton: trigger wiring + structured envelope only",
     metadata: {
-      hasRequestBody: Object.keys(body).length > 0
+      ...envelope.metadata,
+      trigger: "http",
+      quantDecisionMode: quantSignal.decisionMode,
+      quantStressScoreBps: quantSignal.stressScoreBps,
+      quantEarlyWarningBoostBps: quantSignal.earlyWarningBoostBps,
+      quantAdjustedEarlyWarningHfBps: quantSignal.adjustedEarlyWarningHfBps,
+      quantBasisInputBps: quantSignal.basisInputBps,
+      quantLiquidityInputBps: quantSignal.liquidityInputBps,
+      quantTakerInputBps: quantSignal.takerImbalanceInputBps,
+      quantRegimeInputBps: quantSignal.regimeExtremeInputBps,
+      quantSeverity: quantSignal.severity
     }
   }));
 };
-var onEvmLogTrigger = (_runtime, _payload) => safeJson(buildEnvelope({
-  executionId: `${PROFILE_ID}-evm-${Date.now()}`,
-  strategyId: PROFILE_ID,
-  trigger: "evm_log",
-  decision: "NO_ACTION",
-  reason: "Slide 0 skeleton: EVM log trigger registered"
-}));
-var onCronTrigger = (_runtime, payload) => safeJson(buildEnvelope({
-  executionId: `${PROFILE_ID}-cron-${Date.now()}`,
-  strategyId: PROFILE_ID,
-  trigger: "cron",
-  decision: "NO_ACTION",
-  reason: "Slide 0 skeleton: cron watchdog registration",
-  metadata: {
-    triggerTimestamp: resolveCronTimestampSeconds(payload)
-  }
-}));
+var onEvmLogTrigger = (runtime2, payload) => {
+  runtime2.log(`[${PROFILE_ID}] EVM log trigger received`);
+  const quantSignal = evaluateBasisLiquiditySignal(runtime2, {}, runtime2.config);
+  const guardConfig = buildBasisLiquidityGuardConfig(runtime2.config, quantSignal);
+  const envelope = reconcileChainlinkApiGuardLog(runtime2, guardConfig, payload);
+  return safeJson(buildEnvelope({
+    ...envelope,
+    strategyId: PROFILE_ID,
+    metadata: {
+      ...envelope.metadata,
+      trigger: "evm_log",
+      quantDecisionMode: quantSignal.decisionMode,
+      quantStressScoreBps: quantSignal.stressScoreBps
+    }
+  }));
+};
+var onCronTrigger = (runtime2, payload) => {
+  runtime2.log(`[${PROFILE_ID}] cron trigger at ${resolveCronTimestampSeconds(payload)}`);
+  const quantSignal = evaluateBasisLiquiditySignal(runtime2, {}, runtime2.config);
+  const guardConfig = buildBasisLiquidityGuardConfig(runtime2.config, quantSignal);
+  const envelope = runChainlinkApiGuardFlow(runtime2, guardConfig, "cron", {});
+  return safeJson(buildEnvelope({
+    ...envelope,
+    strategyId: PROFILE_ID,
+    metadata: {
+      ...envelope.metadata,
+      trigger: "cron",
+      quantDecisionMode: quantSignal.decisionMode,
+      quantStressScoreBps: quantSignal.stressScoreBps,
+      quantEarlyWarningBoostBps: quantSignal.earlyWarningBoostBps,
+      quantAdjustedEarlyWarningHfBps: quantSignal.adjustedEarlyWarningHfBps
+    }
+  }));
+};
 var initWorkflow = (rawConfig) => {
   const parsed = parseProfileWorkflowConfig(rawConfig, PROFILE_ID);
   return registerBaseTriggers(parsed, {
