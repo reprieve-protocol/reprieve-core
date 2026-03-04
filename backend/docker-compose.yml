@@ -17,5 +17,78 @@ services:
       timeout: 5s
       retries: 12
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reprieve-backend-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      CONTRACTS_CONFIG_DIR: /app/contracts-config
+      NODE_ENV: production
+      APP_PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../contracts/config:/app/contracts-config:ro
+    command: sh -c "npm run migration:run && npm run start:api:prod"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://localhost:3001/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reprieve-backend-indexer
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      CONTRACTS_CONFIG_DIR: /app/contracts-config
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - ../contracts/config:/app/contracts-config:ro
+    command: npm run start:indexer:prod
+
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reprieve-backend-relay
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      CONTRACTS_CONFIG_DIR: /app/contracts-config
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - ../contracts/config:/app/contracts-config:ro
+    command: npm run start:relay:prod
+
 volumes:
   reprieve_postgres_data:

@@ -26,6 +26,24 @@
 - `docker compose up -d`
 - `docker compose down`
 
+## Docker Deployment (API + Indexer + Relay)
+- The compose stack includes:
+  - `postgres`
+  - `api` (Nest HTTP API)
+  - `indexer` (event indexer worker)
+  - `relay` (cross-chain relay worker)
+- Start all services:
+  - `docker compose up -d --build`
+- Follow logs:
+  - `docker compose logs -f api`
+  - `docker compose logs -f indexer`
+  - `docker compose logs -f relay`
+- Stop stack:
+  - `docker compose down`
+- Important:
+  - Compose mounts `../contracts/config` into containers as `/app/contracts-config`.
+  - `CONTRACTS_CONFIG_DIR` is set automatically in compose to `/app/contracts-config`.
+
 ## Notes
 - `ETHEREUM_SEPOLIA_RPC_URL` and `BASE_SEPOLIA_RPC_URL` are required at startup.
 - `CONTRACTS_CONFIG_DIR` defaults to `../contracts/config`.
