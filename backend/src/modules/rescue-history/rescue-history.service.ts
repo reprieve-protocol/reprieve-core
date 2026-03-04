@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
+import {
+  SUPPORTED_CHAIN_KEYS,
+  SupportedChainKey,
+} from '../../config/chains.config';
 import { ChainRegistryService } from '../chains/chain-registry.service';
 import { ChainEntity, RescueEventEntity } from '../persistence/entities';
 import { PositionsService } from '../positions/positions.service';
@@ -13,7 +16,7 @@ import { RescueProjectionService } from './rescue-projection.service';
 import { ChainIndexProgress, IndexerRunResult, RawRpcLog } from './types';
 
 @Injectable()
-export class RescueHistoryService {
+export class RescueHistoryService implements OnModuleInit {
   private readonly logger = new Logger(RescueHistoryService.name);
   private readonly blockWindow: bigint;
   private readonly confirmations: bigint;
@@ -36,6 +39,10 @@ export class RescueHistoryService {
     this.confirmations = BigInt(
       this.configService.get<string>('INDEXER_CONFIRMATIONS', '0'),
     );
+  }
+
+  onModuleInit() {
+    this.runIndexerLoop().catch();
   }
 
   async runIndexerOnce(): Promise<IndexerRunResult> {
@@ -97,8 +104,16 @@ export class RescueHistoryService {
     resetChainCursor?: boolean;
     clearRelayJobs?: boolean;
   }): Promise<{
-    before: { rescueEvents: number; rescueExecutions: number; relayJobs: number };
-    after: { rescueEvents: number; rescueExecutions: number; relayJobs: number };
+    before: {
+      rescueEvents: number;
+      rescueExecutions: number;
+      relayJobs: number;
+    };
+    after: {
+      rescueEvents: number;
+      rescueExecutions: number;
+      relayJobs: number;
+    };
     chainCursorsReset: boolean;
     relayJobsCleared: boolean;
   }> {
@@ -156,9 +171,10 @@ export class RescueHistoryService {
 
     try {
       const chainConfig = this.chainRegistryService.getByKey(chainKey);
-      const addresses = await this.reprieveAddressesService.getIndexedContractAddresses(
-        chain.chainId,
-      );
+      const addresses =
+        await this.reprieveAddressesService.getIndexedContractAddresses(
+          chain.chainId,
+        );
 
       if (addresses.length === 0) {
         return {
@@ -215,7 +231,9 @@ export class RescueHistoryService {
       );
 
       const persistResult = await this.persistLogs(chain.chainId, logs);
-      await this.syncUsersFromPositionEvents(persistResult.positionUpdatedUsers);
+      await this.syncUsersFromPositionEvents(
+        persistResult.positionUpdatedUsers,
+      );
       await this.projectExecutionsFromEvents(persistResult.execIds);
 
       await this.chainRepository.update(chain.id, {
@@ -249,7 +267,11 @@ export class RescueHistoryService {
   async persistLogs(
     chainId: number,
     logs: RawRpcLog[],
-  ): Promise<{ decodedCount: number; positionUpdatedUsers: string[]; execIds: string[] }> {
+  ): Promise<{
+    decodedCount: number;
+    positionUpdatedUsers: string[];
+    execIds: string[];
+  }> {
     let decodedCount = 0;
     const positionUpdatedUsers = new Set<string>();
     const execIds = new Set<string>();
@@ -361,7 +383,11 @@ export class RescueHistoryService {
           error instanceof Error ? error.message : 'unknown error';
         const rpcMaxBlocks = this.parseRpcMaxBlocks(errorMessage);
 
-        if (rpcMaxBlocks !== null && rpcMaxBlocks > 0n && rpcMaxBlocks < chunkSize) {
+        if (
+          rpcMaxBlocks !== null &&
+          rpcMaxBlocks > 0n &&
+          rpcMaxBlocks < chunkSize
+        ) {
           chunkSize = rpcMaxBlocks;
           continue;
         }
@@ -390,7 +416,9 @@ export class RescueHistoryService {
     return BigInt(match[1]);
   }
 
-  private async syncUsersFromPositionEvents(userAddresses: string[]): Promise<void> {
+  private async syncUsersFromPositionEvents(
+    userAddresses: string[],
+  ): Promise<void> {
     if (userAddresses.length > 0) {
       this.logger.log(
         `PositionUpdated users detected: ${userAddresses.length}. Triggering position sync.`,
@@ -398,7 +426,8 @@ export class RescueHistoryService {
     }
     for (const userAddress of userAddresses) {
       try {
-        const syncResult = await this.positionsService.syncPositions(userAddress);
+        const syncResult =
+          await this.positionsService.syncPositions(userAddress);
         this.logger.log(
           `Position sync for ${userAddress}: status=${syncResult.status} upserts=${syncResult.snapshotsUpserted} errors=${syncResult.errors.length}`,
         );

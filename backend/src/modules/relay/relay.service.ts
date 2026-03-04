@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -72,7 +73,7 @@ const MOCK_ROUTER_ABI = [
 ] as const;
 
 @Injectable()
-export class RelayService {
+export class RelayService implements OnModuleInit {
   private readonly logger = new Logger(RelayService.name);
   private readonly selectorToChainId: Map<string, number>;
   private readonly chainIdToKey: Map<number, SupportedChainKey>;
@@ -119,11 +120,19 @@ export class RelayService {
     this.commandTimeoutMs = Number(
       this.configService.get<string>('RELAY_COMMAND_TIMEOUT_MS', '240000'),
     );
-    this.scanLimit = Number(this.configService.get<string>('RELAY_SCAN_LIMIT', '250'));
-    this.batchSize = Number(this.configService.get<string>('RELAY_BATCH_SIZE', '5'));
+    this.scanLimit = Number(
+      this.configService.get<string>('RELAY_SCAN_LIMIT', '250'),
+    );
+    this.batchSize = Number(
+      this.configService.get<string>('RELAY_BATCH_SIZE', '5'),
+    );
     this.runningStaleMs = Number(
       this.configService.get<string>('RELAY_RUNNING_STALE_MS', '300000'),
     );
+  }
+
+  onModuleInit() {
+    this.runRelayWorkerLoop().catch();
   }
 
   async runRelayWorkerLoop(): Promise<void> {
@@ -159,7 +168,9 @@ export class RelayService {
     let dead = 0;
 
     for (let i = 0; i < this.batchSize; i += 1) {
-      this.logger.log(`Step 3.${i + 1}: attempting to claim runnable relay job`);
+      this.logger.log(
+        `Step 3.${i + 1}: attempting to claim runnable relay job`,
+      );
       const job = await this.claimNextRunnableJob();
       if (!job) {
         this.logger.log(
@@ -202,7 +213,11 @@ export class RelayService {
       );
 
       if (commandResult.exitCode === 0 && !commandResult.timedOut) {
-        await this.markJobSuccess(job, commandResult.stdout, commandResult.stderr);
+        await this.markJobSuccess(
+          job,
+          commandResult.stdout,
+          commandResult.stderr,
+        );
         this.logger.log(
           `Step 6.${i + 1}: marked SUCCESS for messageId=${job.messageId}`,
         );
@@ -387,7 +402,9 @@ export class RelayService {
     });
 
     if (!job) {
-      throw new NotFoundException(`Relay job not found for message ${normalized}`);
+      throw new NotFoundException(
+        `Relay job not found for message ${normalized}`,
+      );
     }
 
     return job;
@@ -409,7 +426,9 @@ export class RelayService {
       updatedAt: new Date(),
     });
 
-    this.logger.log(`Manual retry queued for relay job messageId=${job.messageId}`);
+    this.logger.log(
+      `Manual retry queued for relay job messageId=${job.messageId}`,
+    );
 
     return this.getRelayJob(job.messageId);
   }
@@ -547,7 +566,10 @@ export class RelayService {
       }
     }
 
-    const targetChain = payloadObject?.targetChain as string | number | undefined;
+    const targetChain = payloadObject?.targetChain as
+      | string
+      | number
+      | undefined;
     if (targetChain !== undefined && targetChain !== null) {
       const asSelector = String(targetChain);
       const mapped = this.selectorToChainId.get(asSelector);
@@ -614,13 +636,16 @@ export class RelayService {
     this.logger.log(`EVM relay step: validating messageId=${messageId}`);
 
     const sourceChain = this.chainRegistryService.getByKey(sourceChainKey);
-    const destinationChain = this.chainRegistryService.getByKey(destinationChainKey);
+    const destinationChain =
+      this.chainRegistryService.getByKey(destinationChainKey);
     this.logger.log(
       `EVM relay step: sourceChain=${sourceChain.key}(${sourceChain.chainId}) destinationChain=${destinationChain.key}(${destinationChain.chainId})`,
     );
 
     const sourceRouterAddress = this.resolveRouterAddress(sourceChain.chainId);
-    const destinationRouterAddress = this.resolveRouterAddress(destinationChain.chainId);
+    const destinationRouterAddress = this.resolveRouterAddress(
+      destinationChain.chainId,
+    );
     const relayPrivateKey = this.resolveRelayPrivateKey(destinationChain.key);
     this.logger.log(
       `EVM relay step: resolved routers source=${sourceRouterAddress} destination=${destinationRouterAddress}`,
@@ -652,7 +677,9 @@ export class RelayService {
       `EVM relay step: loaded source message messageId=${messageId} sourceSelector=${stored.sourceChainSelector.toString()} destinationSelector=${stored.destinationChainSelector.toString()} tokenCount=${stored.tokenAmounts.length}`,
     );
     if (!stored.tokenAmounts || stored.tokenAmounts.length === 0) {
-      throw new Error(`Source router message has no token amounts: ${messageId}`);
+      throw new Error(
+        `Source router message has no token amounts: ${messageId}`,
+      );
     }
 
     const sourceToken = stored.tokenAmounts[0]?.token;
@@ -675,7 +702,9 @@ export class RelayService {
     );
 
     const destinationReceiver = this.decodeReceiverAddress(stored.receiver);
-    this.logger.log(`EVM relay step: decoded destination receiver=${destinationReceiver}`);
+    this.logger.log(
+      `EVM relay step: decoded destination receiver=${destinationReceiver}`,
+    );
 
     const tx = await destinationRouter.deliverExternalMessage(
       messageId,
@@ -739,7 +768,9 @@ export class RelayService {
     );
 
     if (!fs.existsSync(configPath)) {
-      throw new Error(`Missing reprieve stack config for chain ${chainId}: ${configPath}`);
+      throw new Error(
+        `Missing reprieve stack config for chain ${chainId}: ${configPath}`,
+      );
     }
 
     const raw = fs.readFileSync(configPath, 'utf8');
@@ -759,7 +790,9 @@ export class RelayService {
     return normalized;
   }
 
-  private resolveRelayPrivateKey(destinationChainKey: SupportedChainKey): string {
+  private resolveRelayPrivateKey(
+    destinationChainKey: SupportedChainKey,
+  ): string {
     const chainSpecificKey =
       destinationChainKey === 'ethereum-sepolia'
         ? this.configService.get<string>('ETHEREUM_SEPOLIA_PRIVATE_KEY')
@@ -782,7 +815,9 @@ export class RelayService {
 
     const normalized = raw.startsWith('0x') ? raw : `0x${raw}`;
     if (!isHexString(normalized, 32)) {
-      throw new Error(`Invalid relay private key format for ${destinationChainKey}`);
+      throw new Error(
+        `Invalid relay private key format for ${destinationChainKey}`,
+      );
     }
     this.logger.log(
       `Signer resolution: using configured relay signer for ${destinationChainKey}`,
@@ -801,11 +836,14 @@ export class RelayService {
       return getAddress(`0x${hex}`);
     }
     if (hex.length === 64) {
-      this.logger.log('Receiver decode: interpreted 32-byte ABI-encoded receiver');
+      this.logger.log(
+        'Receiver decode: interpreted 32-byte ABI-encoded receiver',
+      );
       return getAddress(`0x${hex.slice(24)}`);
     }
 
-    throw new Error(`Unsupported receiver bytes length: ${receiverBytes.length}`);
+    throw new Error(
+      `Unsupported receiver bytes length: ${receiverBytes.length}`,
+    );
   }
-
 }
