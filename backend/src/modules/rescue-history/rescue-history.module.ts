@@ -5,11 +5,13 @@ import {
   ChainEntity,
   RescueEventEntity,
   RescueExecutionEntity,
+  RescueWorkflowLogEntity,
 } from '../persistence/entities';
 import { PositionsModule } from '../positions/positions.module';
 import { EvmRpcService } from './evm-rpc.service';
 import { ReprieveAddressesService } from './reprieve-addresses.service';
 import { RescueProjectionService } from './rescue-projection.service';
+import { RescueWorkflowLogsService } from './rescue-workflow-logs.service';
 import { RescueHistoryService } from './rescue-history.service';
 import { RescuesController } from './rescues.controller';
 
@@ -17,15 +19,21 @@ import { RescuesController } from './rescues.controller';
   imports: [
     ChainsModule,
     PositionsModule,
-    TypeOrmModule.forFeature([ChainEntity, RescueEventEntity, RescueExecutionEntity]),
+    TypeOrmModule.forFeature([
+      ChainEntity,
+      RescueEventEntity,
+      RescueExecutionEntity,
+      RescueWorkflowLogEntity,
+    ]),
   ],
   controllers: [RescuesController],
   providers: [
     RescueHistoryService,
     RescueProjectionService,
+    RescueWorkflowLogsService,
     EvmRpcService,
     ReprieveAddressesService,
   ],
-  exports: [RescueHistoryService, RescueProjectionService],
+  exports: [RescueHistoryService, RescueProjectionService, RescueWorkflowLogsService],
 })
 export class RescueHistoryModule {}

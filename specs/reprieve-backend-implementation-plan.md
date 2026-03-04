@@ -344,6 +344,74 @@ This plan implements [reprieve-backend-nest-design.md](/Users/sniperman/code/rep
 
 ---
 
+## Slide 5B - User CRE Registration and Strategy Preferences
+
+### Status
+- Completed in code: migration, entities, module, APIs, and service tests implemented.
+
+### Development Scope
+- Let each user register exactly one active CRE strategy configuration at a time.
+- Support selecting one of the 3 workflows:
+  - `CHAINLINK_API_GUARD_V1`
+  - `QUANT_FUNDING_OI_V1`
+  - `QUANT_BASIS_LIQUIDITY_V1`
+- Persist user strategy parameters for runtime consumption and API query.
+
+### Product Rules
+- Single active registration per user (upsert semantics).
+- User can edit strategy + params anytime (last write wins with audit trail).
+- Required configurable params:
+  - HF threshold (basis points)
+  - priority queue order (`SAME_CHAIN_FIRST` or `CROSS_CHAIN_FIRST`)
+  - budget cap in USD
+
+### Data Model Scope
+- Add table: `user_cre_registrations`
+  - `id`
+  - `user_address` (unique)
+  - `workflow_id`
+  - `hf_threshold_bps`
+  - `queue_priority`
+  - `budget_cap_usd`
+  - `is_active`
+  - `created_at`, `updated_at`
+- Add table: `user_cre_registration_revisions`
+  - immutable history snapshots on create/update
+  - includes actor/source metadata for traceability.
+
+### API Scope
+- `PUT /v1/users/:address/cre-registration`
+  - create-or-update active registration (single endpoint upsert).
+- `GET /v1/users/:address/cre-registration`
+  - fetch current active registration.
+- `GET /v1/users/:address/cre-registration/revisions`
+  - fetch change history.
+
+### Validation Scope
+- Enforce workflow enum membership (only 3 supported workflows).
+- Validate threshold bounds (bps range), budget > 0, and queue enum.
+- Normalize user address checksum/lowercase policy consistently.
+
+### Testing Scope
+- Create registration for first-time user.
+- Update registration keeps one active row and appends revision history.
+- Invalid workflow / invalid params rejected with 400.
+- Query endpoints return correct active row and revisions.
+
+### Acceptance Criteria
+- User can register one strategy config and retrieve it reliably.
+- Updating config does not create multiple active registrations.
+- History endpoint shows full edit trail.
+
+### Validation Checklist
+- [x] First registration persists successfully.
+- [x] Second registration for same user updates existing active record.
+- [x] Only supported CRE workflow IDs are accepted.
+- [x] HF threshold / queue order / budget cap validation enforced.
+- [x] Revisions are recorded for every update.
+
+---
+
 ## Slide 6 - Security, Observability, and Operations
 
 ### Development Scope

@@ -1,5 +1,15 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Matches, Max, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -68,4 +78,77 @@ export class ExecIdParamDto {
   })
   @Matches(EXEC_ID_REGEX)
   execId!: string;
+}
+
+export class CreateRescueWorkflowLogDto {
+  @ApiProperty({
+    description: 'Long workflow log text generated for this rescue execution run',
+    example:
+      '[CHAINLINK_API_GUARD_V1] HTTP trigger received ... decision=RESCUE_CROSS_CHAIN',
+  })
+  @IsString()
+  @MaxLength(200000)
+  logText!: string;
+
+  @ApiPropertyOptional({
+    description: 'CRE workflow ID that produced this log',
+    enum: [
+      'CHAINLINK_API_GUARD_V1',
+      'QUANT_FUNDING_OI_V1',
+      'QUANT_BASIS_LIQUIDITY_V1',
+    ],
+    example: 'CHAINLINK_API_GUARD_V1',
+  })
+  @IsOptional()
+  @IsIn([
+    'CHAINLINK_API_GUARD_V1',
+    'QUANT_FUNDING_OI_V1',
+    'QUANT_BASIS_LIQUIDITY_V1',
+  ])
+  workflowId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Optional workflow run identifier',
+    example: 'run-2026-03-04T10:12:30Z',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  runId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Additional structured metadata',
+    example: { trigger: 'http', runMode: 'execute' },
+  })
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+export class ListRescueWorkflowLogsQueryDto {
+  @ApiPropertyOptional({
+    description: 'Page number (1-based)',
+    minimum: 1,
+    default: 1,
+    example: 1,
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? 1 : Number(value)))
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({
+    description: 'Page size',
+    minimum: 1,
+    maximum: 100,
+    default: 20,
+    example: 20,
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? 20 : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
 }

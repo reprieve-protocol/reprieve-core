@@ -1,0 +1,42 @@
+2026-03-04T13:41:30Z [SIMULATION] Simulator Initialized
+
+2026-03-04T13:41:30Z [SIMULATION] Running trigger trigger=http-trigger@1.0.0-alpha
+2026-03-04T13:41:30Z [USER LOG] [CHAINLINK_API_GUARD_V1] HTTP trigger received
+2026-03-04T13:41:30Z [USER LOG] [V1][adapter-read] label=source-aave-adapter chain=ethereum-testnet-sepolia adapter=0x9a2389d74e6318C67824339e37450437b4De7027
+2026-03-04T13:41:30Z [USER LOG] [V1][adapter-read] label=source-aave-adapter chain=ethereum-testnet-sepolia positions=1
+2026-03-04T13:41:31Z [USER LOG] [V1][adapter-read] label=target-compound-adapter chain=ethereum-testnet-sepolia adapter=0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa
+2026-03-04T13:41:31Z [USER LOG] [V1][adapter-read] label=target-compound-adapter chain=ethereum-testnet-sepolia positions=1
+2026-03-04T13:41:31Z [USER LOG] [V1][adapter-read] label=aux-morpho-adapter chain=ethereum-testnet-sepolia adapter=0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68
+2026-03-04T13:41:31Z [USER LOG] [V1][adapter-read] label=aux-morpho-adapter chain=ethereum-testnet-sepolia positions=0
+2026-03-04T13:41:31Z [USER LOG] [V1][adapter-read] label=base-aave-adapter chain=ethereum-testnet-sepolia-base-1 adapter=0x3Ce2A7601623bdB7aF942eD07BF185b5a8CF0cd9
+2026-03-04T13:41:32Z [USER LOG] [V1][adapter-read] label=base-aave-adapter chain=ethereum-testnet-sepolia-base-1 positions=0
+2026-03-04T13:41:32Z [USER LOG] [V1][adapter-read] label=base-compound-adapter chain=ethereum-testnet-sepolia-base-1 adapter=0xA10dD58EcAdf3fd071a23415e55FD23287d684bc
+2026-03-04T13:41:32Z [USER LOG] [V1][adapter-read] label=base-compound-adapter chain=ethereum-testnet-sepolia-base-1 positions=1
+2026-03-04T13:41:32Z [USER LOG] [V1][adapter-read] label=base-morpho-adapter chain=ethereum-testnet-sepolia-base-1 adapter=0x325fADdd2B7F0B3f7ab8E5113F31a4C208669f44
+2026-03-04T13:41:33Z [USER LOG] [V1][adapter-read] label=base-morpho-adapter chain=ethereum-testnet-sepolia-base-1 positions=0
+2026-03-04T13:41:33Z [USER LOG] [V1][asset-map] 0xedd391fda28993287df301485abf72865dee5050 -> 0x4c87ea388ade37f6a556146b4ff6ff2a12192968
+2026-03-04T13:41:33Z [USER LOG] [V1][asset-map] 0x7570e1f97e0831e929b9525858586e274f5c9cf2 -> 0x7c31b54eb6712b308cf27aa7e8d2012dcfa92e4e
+2026-03-04T13:41:33Z [USER LOG] On-chain oracle read for 0x4c87ea388ade37f6a556146b4ff6ff2a12192968: price=1000.25 updatedAt=1772503920
+2026-03-04T13:41:33Z [USER LOG] On-chain oracle read for 0x7c31b54eb6712b308cf27aa7e8d2012dcfa92e4e: price=1 updatedAt=1772419284
+2026-03-04T13:41:33Z [USER LOG] [V1] Staleness checks disabled (maxPriceAgeSec=0).
+2026-03-04T13:41:33Z [USER LOG] [V1][price] asset=0x4c87EA388AdE37f6A556146B4fF6ff2A12192968 priceUsd=1000.25 source=oracle ageSec=102573 shockBps=0
+2026-03-04T13:41:33Z [USER LOG] [V1][price] asset=0x7C31b54EB6712B308cf27aA7e8d2012DcfA92E4E priceUsd=1 source=oracle ageSec=187209 shockBps=0
+2026-03-04T13:41:33Z [USER LOG] [V1][price] asset=0xEDD391FDa28993287Df301485ABF72865dee5050 priceUsd=1000.25 source=oracle ageSec=102573 shockBps=0
+2026-03-04T13:41:33Z [USER LOG] [V1][price] asset=0x7570E1f97e0831E929B9525858586E274F5C9cf2 priceUsd=1 source=oracle ageSec=187209 shockBps=0
+2026-03-04T13:41:33Z [USER LOG] [V1] User=0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5 adaptersWithPositions=3
+2026-03-04T13:41:33Z [USER LOG] [V1][position] adapter=source-aave-adapter collAsset=0x4c87ea388ade37f6a556146b4ff6ff2a12192968 debtAsset=0x7c31b54eb6712b308cf27aa7e8d2012dcfa92e4e collAmt=54.4405 debtAmt=0 collUsd=54454.19 debtUsd=0 effCollUsd=43563.35 positionHF=INF
+2026-03-04T13:41:33Z [USER LOG] [V1][position] adapter=target-compound-adapter collAsset=0x4c87ea388ade37f6a556146b4ff6ff2a12192968 debtAsset=0x7c31b54eb6712b308cf27aa7e8d2012dcfa92e4e collAmt=22.497 debtAmt=16004.1113 collUsd=22502.66 debtUsd=16004.11 effCollUsd=18002.13 positionHF=1.1248
+2026-03-04T13:41:33Z [USER LOG] [V1][position] adapter=base-compound-adapter collAsset=0xedd391fda28993287df301485abf72865dee5050 debtAsset=0x7570e1f97e0831e929b9525858586e274f5c9cf2 collAmt=14 debtAmt=10002.5621 collUsd=14003.5 debtUsd=10002.56 effCollUsd=11202.8 positionHF=1.1199
+2026-03-04T13:41:33Z [USER LOG] [V1][summary] positions=3 totalEffectiveCollUsd=72768.29 totalDebtUsd=26006.67 aggregateHF=2.798 weakestHF=1.1199 stalenessPenaltyBps=0 slopePenaltyBps=0 effectiveHF=2.798 weakestEffectiveHF=1.1199 decision=RESCUE_CROSS_CHAIN
+2026-03-04T13:41:34Z [USER LOG] Planning rescue with step: {"execId":"0x72bab5fc389efa05ac47ebf235c8e16c50dadc7d51b4cd52ad57c533060e986c","mode":"TOP_UP","sourceAdapter":"0x9a2389d74e6318C67824339e37450437b4De7027","targetAdapter":"0xA10dD58EcAdf3fd071a23415e55FD23287d684bc","collateralAsset":"0x4c87EA388AdE37f6A556146B4fF6ff2A12192968","debtAsset":"0x7570E1f97e0831E929B9525858586E274F5C9cf2","collateralAmount":"62587375187453136","debtAmount":"0","isCrossChain":true,"targetChain":"10344971235874465080"}
+2026-03-04T13:41:34Z [USER LOG] Submitting rescue report
+2026-03-04T13:41:34Z [USER LOG] Report receiver: 0x860Cde8737998D6166340d485ad68f49B5d6C3e9
+2026-03-04T13:41:34Z [USER LOG] Execution id: 0x72bab5fc389efa05ac47ebf235c8e16c50dadc7d51b4cd52ad57c533060e986c
+2026-03-04T13:41:34Z [USER LOG] Report gas limit: 3500000
+2026-03-04T13:41:49Z [USER LOG] Rescue report submitted. Tx: 0x9420cefb5d01f5cf409b7bc7a34dbed46f50e9f17d41952a91c713ca712c3420
+
+✓ Workflow Simulation Result:
+"{\"executionId\":\"0x72bab5fc389efa05ac47ebf235c8e16c50dadc7d51b4cd52ad57c533060e986c\",\"strategyId\":\"CHAINLINK_API_GUARD_V1\",\"trigger\":\"http\",\"decision\":\"RESCUE_CROSS_CHAIN\",\"reason\":\"Rescue report submitted\",\"settlementState\":\"DISPATCHED\",\"txRefs\":[{\"chainSelectorName\":\"ethereum-testnet-sepolia\",\"txHash\":\"0x9420cefb5d01f5cf409b7bc7a34dbed46f50e9f17d41952a91c713ca712c3420\",\"label\":\"writeReport(onReport)\"}],\"metadata\":{\"user\":\"0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5\",\"runMode\":\"execute\",\"reportReceiver\":\"0x860Cde8737998D6166340d485ad68f49B5d6C3e9\",\"rescueMode\":\"TOP_UP\",\"sourceAdapter\":\"0x9a2389d74e6318C67824339e37450437b4De7027\",\"targetAdapter\":\"0xA10dD58EcAdf3fd071a23415e55FD23287d684bc\",\"sourceAsset\":\"0x4c87EA388AdE37f6A556146B4fF6ff2A12192968\",\"targetAsset\":\"0xEDD391FDa28993287Df301485ABF72865dee5050\",\"amount\":\"62587375187453136\",\"sourceFloorHfBps\":11250,\"sourceHfSafeCap\":\"54440589838790302425\",\"crossChain\":true,\"targetChain\":\"10344971235874465080\",\"ccipMessageId\":\"0x0eb6bdf6e3947b8686cdb5e6d124e4f8f57a5019d3c3858985105f5e338eac32\",\"sourceRescueStatus\":\"None\",\"preSimSkipped\":true,\"trigger\":\"http\"}}"
+
+2026-03-04T13:41:49Z [SIMULATION] Execution finished signal received
+2026-03-04T13:41:49Z [SIMULATION] Skipping WorkflowEngineV2

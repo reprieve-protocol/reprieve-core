@@ -7,6 +7,9 @@ import { ProtocolAdapterEntity } from './protocol-adapter.entity';
 import { RelayJobEntity } from './relay-job.entity';
 import { RescueEventEntity } from './rescue-event.entity';
 import { RescueExecutionEntity } from './rescue-execution.entity';
+import { RescueWorkflowLogEntity } from './rescue-workflow-log.entity';
+import { UserCreRegistrationRevisionEntity } from './user-cre-registration-revision.entity';
+import { UserCreRegistrationEntity } from './user-cre-registration.entity';
 
 export const PERSISTENCE_ENTITIES = [
   ChainEntity,
@@ -14,10 +17,13 @@ export const PERSISTENCE_ENTITIES = [
   PositionSnapshotEntity,
   RescueEventEntity,
   RescueExecutionEntity,
+  RescueWorkflowLogEntity,
   RelayJobEntity,
   DemoWalletEntity,
   DemoWalletFundingRunEntity,
   DemoWalletBootstrapRunEntity,
+  UserCreRegistrationEntity,
+  UserCreRegistrationRevisionEntity,
 ];
 
 export {
@@ -26,8 +32,11 @@ export {
   PositionSnapshotEntity,
   RescueEventEntity,
   RescueExecutionEntity,
+  RescueWorkflowLogEntity,
   RelayJobEntity,
   DemoWalletEntity,
   DemoWalletFundingRunEntity,
   DemoWalletBootstrapRunEntity,
+  UserCreRegistrationEntity,
+  UserCreRegistrationRevisionEntity,
 };
