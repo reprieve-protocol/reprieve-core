@@ -3,7 +3,6 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
-  OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -73,7 +72,7 @@ const MOCK_ROUTER_ABI = [
 ] as const;
 
 @Injectable()
-export class RelayService implements OnModuleInit {
+export class RelayService {
   private readonly logger = new Logger(RelayService.name);
   private readonly selectorToChainId: Map<string, number>;
   private readonly chainIdToKey: Map<number, SupportedChainKey>;
@@ -129,10 +128,6 @@ export class RelayService implements OnModuleInit {
     this.runningStaleMs = Number(
       this.configService.get<string>('RELAY_RUNNING_STALE_MS', '300000'),
     );
-  }
-
-  onModuleInit() {
-    this.runRelayWorkerLoop().catch();
   }
 
   async runRelayWorkerLoop(): Promise<void> {

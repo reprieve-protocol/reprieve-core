@@ -406,6 +406,9 @@ export class DemoWalletsService {
       order: { id: 'DESC' },
     });
     if (existingSuccessfulRun && !dto.force) {
+      this.logger.log(
+        `[bootstrap] reuse existing successful run runId=${existingSuccessfulRun.id} wallet=${demoWalletAddress} mode=${rescueMode}`,
+      );
       return {
         runId: existingSuccessfulRun.id,
         status: 'success',
@@ -418,7 +421,7 @@ export class DemoWalletsService {
     const run = await this.demoWalletBootstrapRunRepository.save({
       demoWalletId: demoWallet.id,
       rescueMode,
-      status: 'running',
+      status: 'queued',
       requestPayload: {
         rescueMode,
         force: Boolean(dto.force),
@@ -429,10 +432,100 @@ export class DemoWalletsService {
       updatedAt: new Date(),
     });
 
+    this.logger.log(
+      `[bootstrap] queued runId=${run.id} wallet=${demoWalletAddress} mode=${rescueMode} minBorrowUsd=${String(
+        dto.minBorrowUsd ?? 1000,
+      )} force=${String(Boolean(dto.force))}`,
+    );
+
+    setImmediate(() => {
+      this.logger.log(
+        `[bootstrap] dispatch background runId=${run.id} wallet=${demoWalletAddress}`,
+      );
+      void this.executeBootstrapPositionsRun(
+        run.id,
+        demoWalletAddress,
+        demoWallet.encryptedPrivateKey,
+        rescueMode,
+        dto.minBorrowUsd ?? 1000,
+      ).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `[bootstrap] runId=${run.id} wallet=${demoWalletAddress} crashed unexpectedly: ${message}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      });
+    });
+
+    return {
+      runId: run.id,
+      status: 'queued',
+      accepted: true,
+      reused: false,
+      demoWalletAddress: getAddress(demoWalletAddress),
+      rescueMode,
+    };
+  }
+
+  async getBootstrapRun(
+    demoWalletAddressInput: string,
+    runId: number,
+  ): Promise<Record<string, unknown>> {
+    const demoWalletAddress = this.normalizeAddressLower(demoWalletAddressInput);
+    const demoWallet = await this.demoWalletRepository.findOne({
+      where: { demoWalletAddress },
+    });
+    if (!demoWallet) {
+      throw new NotFoundException(`Demo wallet not found: ${demoWalletAddressInput}`);
+    }
+
+    const run = await this.demoWalletBootstrapRunRepository.findOne({
+      where: {
+        id: runId,
+        demoWalletId: demoWallet.id,
+      },
+    });
+    if (!run) {
+      throw new NotFoundException(
+        `Bootstrap run ${String(runId)} not found for ${demoWalletAddressInput}`,
+      );
+    }
+
+    return {
+      runId: run.id,
+      demoWalletAddress: getAddress(demoWalletAddress),
+      rescueMode: run.rescueMode,
+      status: run.status,
+      errorMessage: run.errorMessage,
+      result: run.resultPayload,
+      createdAt: run.createdAt.toISOString(),
+      updatedAt: run.updatedAt.toISOString(),
+    };
+  }
+
+  private async executeBootstrapPositionsRun(
+    runId: number,
+    demoWalletAddress: string,
+    encryptedPrivateKey: string,
+    rescueMode: RescueModeDto,
+    minBorrowUsd: number,
+  ): Promise<void> {
+    const startedAtMs = Date.now();
+    this.logger.log(
+      `[bootstrap] runId=${runId} wallet=${demoWalletAddress} entering running state mode=${rescueMode}`,
+    );
+    await this.demoWalletBootstrapRunRepository.update(runId, {
+      status: 'running',
+      updatedAt: new Date(),
+    });
+
     try {
       const ethContext = this.loadChainContext('ethereum-sepolia');
       const baseContext = this.loadChainContext('base-sepolia');
-      const demoPrivateKey = this.decryptPrivateKey(demoWallet.encryptedPrivateKey);
+      this.logger.log(
+        `[bootstrap] runId=${runId} loaded chain contexts ethChainId=${ethContext.chainId} baseChainId=${baseContext.chainId}`,
+      );
+      const demoPrivateKey = this.decryptPrivateKey(encryptedPrivateKey);
 
       const ethDemoSigner = new Wallet(demoPrivateKey, ethContext.provider);
       const baseDemoSigner = new Wallet(demoPrivateKey, baseContext.provider);
@@ -442,16 +535,23 @@ export class DemoWalletsService {
       ) {
         throw new Error('Stored demo wallet key does not match requested demo wallet address');
       }
+      this.logger.log(
+        `[bootstrap] runId=${runId} signer validation passed wallet=${demoWalletAddress}`,
+      );
 
       const plan = await this.buildBootstrapPlan(
         rescueMode,
         ethContext,
         baseContext,
-        dto.minBorrowUsd ?? 1000,
+        minBorrowUsd,
+      );
+      this.logger.log(
+        `[bootstrap] runId=${runId} plan built orientation=${plan.orientation} weakPosition=${plan.weakPosition}`,
       );
 
       const txs: Array<Record<string, unknown>> = [];
 
+      this.logger.log(`[bootstrap] runId=${runId} step=aave-source-supply start`);
       const ethAavePool = this.requireAddress(
         ethContext.contracts.MockAavePool,
         'ethereum-sepolia MockAavePool',
@@ -480,7 +580,8 @@ export class DemoWalletsService {
           plan.ethCompoundCollateral.asset,
           demoWalletAddress,
         );
-        const executableAaveSupply = walletFreeCollateral >= aaveSupplyDeltaRaw ? aaveSupplyDeltaRaw : walletFreeCollateral;
+        const executableAaveSupply =
+          walletFreeCollateral >= aaveSupplyDeltaRaw ? aaveSupplyDeltaRaw : walletFreeCollateral;
         if (executableAaveSupply < aaveSupplyDeltaRaw) {
           txs.push({
             step: 'aave-supply-eth-balance-check',
@@ -502,34 +603,34 @@ export class DemoWalletsService {
             targetCollateralRaw: aaveSupplyRaw.toString(),
           });
         } else {
-        await this.ensureApproval(
-          ethContext,
-          plan.ethCompoundCollateral.asset,
-          ethDemoSigner,
-          ethAavePool,
-          executableAaveSupply,
-          txs,
-          'approve-aave-eth',
-        );
-        const aaveSupplyTx = await aavePool.supply(
-          plan.ethCompoundCollateral.asset,
-          executableAaveSupply,
-          demoWalletAddress,
-          0,
-          {
-            gasLimit: TX_GAS_LIMITS.aaveSupply,
-          },
-        );
-        const aaveSupplyReceipt = await aaveSupplyTx.wait();
-        txs.push({
-          step: 'aave-supply-eth',
-          chain: 'ethereum-sepolia',
-          txHash: aaveSupplyTx.hash,
-          blockNumber: String(aaveSupplyReceipt?.blockNumber ?? 0),
-          suppliedRaw: executableAaveSupply.toString(),
-          existingCollateralRaw: existingAaveCollateralRaw.toString(),
-          targetCollateralRaw: aaveSupplyRaw.toString(),
-        });
+          await this.ensureApproval(
+            ethContext,
+            plan.ethCompoundCollateral.asset,
+            ethDemoSigner,
+            ethAavePool,
+            executableAaveSupply,
+            txs,
+            'approve-aave-eth',
+          );
+          const aaveSupplyTx = await aavePool.supply(
+            plan.ethCompoundCollateral.asset,
+            executableAaveSupply,
+            demoWalletAddress,
+            0,
+            {
+              gasLimit: TX_GAS_LIMITS.aaveSupply,
+            },
+          );
+          const aaveSupplyReceipt = await aaveSupplyTx.wait();
+          txs.push({
+            step: 'aave-supply-eth',
+            chain: 'ethereum-sepolia',
+            txHash: aaveSupplyTx.hash,
+            blockNumber: String(aaveSupplyReceipt?.blockNumber ?? 0),
+            suppliedRaw: executableAaveSupply.toString(),
+            existingCollateralRaw: existingAaveCollateralRaw.toString(),
+            targetCollateralRaw: aaveSupplyRaw.toString(),
+          });
         }
       } else {
         txs.push({
@@ -560,11 +661,13 @@ export class DemoWalletsService {
         txs,
         'approve-aave-atoken-to-adapter',
       );
+      this.logger.log(`[bootstrap] runId=${runId} step=aave-atoken-approve done`);
 
       const ethCompoundMarketAddress = this.requireAddress(
         ethContext.contracts.MockCompoundComet,
         'ethereum-sepolia MockCompoundComet',
       );
+      this.logger.log(`[bootstrap] runId=${runId} step=compound-eth start`);
       await this.executeCompoundPositionStep(
         ethContext,
         ethDemoSigner,
@@ -576,7 +679,9 @@ export class DemoWalletsService {
         txs,
         'compound-eth',
       );
+      this.logger.log(`[bootstrap] runId=${runId} step=compound-eth done`);
 
+      this.logger.log(`[bootstrap] runId=${runId} step=compound-base start`);
       await this.executeCompoundPositionStep(
         baseContext,
         baseDemoSigner,
@@ -588,6 +693,7 @@ export class DemoWalletsService {
         txs,
         'compound-base',
       );
+      this.logger.log(`[bootstrap] runId=${runId} step=compound-base done`);
 
       const resultPayload = {
         demoWalletAddress: getAddress(demoWalletAddress),
@@ -597,27 +703,28 @@ export class DemoWalletsService {
         plan,
         txs,
       };
-      await this.demoWalletBootstrapRunRepository.update(run.id, {
+      await this.demoWalletBootstrapRunRepository.update(runId, {
         status: 'success',
         resultPayload,
         errorMessage: null,
         updatedAt: new Date(),
       });
-
-      return {
-        runId: run.id,
-        status: 'success',
-        reused: false,
-        ...resultPayload,
-      };
+      this.logger.log(
+        `[bootstrap] runId=${runId} completed status=success txCount=${txs.length} durationMs=${
+          Date.now() - startedAtMs
+        }`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.demoWalletBootstrapRunRepository.update(run.id, {
+      await this.demoWalletBootstrapRunRepository.update(runId, {
         status: 'failed',
         errorMessage: message,
         updatedAt: new Date(),
       });
-      throw new BadRequestException(message);
+      this.logger.error(
+        `[bootstrap] runId=${runId} failed durationMs=${Date.now() - startedAtMs} message=${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 

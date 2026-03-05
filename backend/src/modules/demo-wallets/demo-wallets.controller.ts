@@ -1,7 +1,8 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import {
   BootstrapDemoWalletDto,
+  DemoWalletBootstrapRunParamDto,
   DemoWalletAddressParamDto,
   FundDemoWalletDto,
   GenerateDemoWalletDto,
@@ -45,11 +46,33 @@ export class DemoWalletsController {
     description: 'Managed demo wallet address',
     example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
   })
+  @HttpCode(HttpStatus.ACCEPTED)
   @Post(':demoWalletAddress/bootstrap-positions')
   async bootstrapPositions(
     @Param() params: DemoWalletAddressParamDto,
     @Body() body: BootstrapDemoWalletDto,
   ) {
     return this.demoWalletsService.bootstrapPositions(params.demoWalletAddress, body);
+  }
+
+  @ApiOperation({
+    summary: 'Get bootstrap run status/result',
+  })
+  @ApiParam({
+    name: 'demoWalletAddress',
+    description: 'Managed demo wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @ApiParam({
+    name: 'runId',
+    description: 'Bootstrap run id',
+    example: 12,
+  })
+  @Get(':demoWalletAddress/bootstrap-positions/runs/:runId')
+  async getBootstrapRun(@Param() params: DemoWalletBootstrapRunParamDto) {
+    return this.demoWalletsService.getBootstrapRun(
+      params.demoWalletAddress,
+      params.runId,
+    );
   }
 }

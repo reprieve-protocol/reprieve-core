@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
@@ -19,6 +20,17 @@ export class DemoWalletAddressParamDto {
   @IsString()
   @Matches(ADDRESS_REGEX)
   demoWalletAddress!: string;
+}
+
+export class DemoWalletBootstrapRunParamDto extends DemoWalletAddressParamDto {
+  @ApiProperty({
+    description: 'Bootstrap run id',
+    example: 12,
+  })
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  runId!: number;
 }
 
 export class GenerateDemoWalletDto {

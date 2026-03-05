@@ -16,7 +16,7 @@ import { RescueProjectionService } from './rescue-projection.service';
 import { ChainIndexProgress, IndexerRunResult, RawRpcLog } from './types';
 
 @Injectable()
-export class RescueHistoryService implements OnModuleInit {
+export class RescueHistoryService {
   private readonly logger = new Logger(RescueHistoryService.name);
   private readonly blockWindow: bigint;
   private readonly confirmations: bigint;
@@ -39,10 +39,6 @@ export class RescueHistoryService implements OnModuleInit {
     this.confirmations = BigInt(
       this.configService.get<string>('INDEXER_CONFIRMATIONS', '0'),
     );
-  }
-
-  onModuleInit() {
-    this.runIndexerLoop().catch();
   }
 
   async runIndexerOnce(): Promise<IndexerRunResult> {
