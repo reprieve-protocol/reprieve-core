@@ -42,6 +42,7 @@ const ERC20_SYMBOL_BYTES32_ABI = ['function symbol() view returns (bytes32)'] as
 const WAD = 10n ** 18n;
 const BPS_DENOM = 10_000n;
 const MAX_UINT256 = (1n << 256n) - 1n;
+const ETHEREUM_SEPOLIA_CHAIN_ID = 11155111;
 
 type Decision = 'NO_ACTION' | 'RESCUE_SAME_CHAIN' | 'RESCUE_CROSS_CHAIN' | 'ABORT';
 type RescueMode = 'TOP_UP' | 'REPAY';
@@ -296,22 +297,8 @@ export class PositionsService {
       : Number.MAX_SAFE_INTEGER;
     const stale = latestAgeSec > maxAgeSec;
 
-    return {
-      user: normalizedUser,
-      generatedAt: new Date(now).toISOString(),
-      latestSyncedAt: latestSyncedAt ? latestSyncedAt.toISOString() : null,
-      oldestSyncedAt: oldestSyncedAt ? oldestSyncedAt.toISOString() : null,
-      latestAgeSec,
-      maxAgeSec,
-      isStale: stale,
-      positionCount: positions.length,
-      chains: chains.map((chain) => ({
-        chainId: chain.chainId,
-        chainKey: chain.key,
-        indexerCursorBlock: chain.indexerCursorBlock,
-      })),
-      positions: await Promise.all(
-        positions.map(async (position) => {
+    const enrichedPositions = await Promise.all(
+      positions.map(async (position) => {
         const chain = chainById.get(position.chainId);
         const meta = tokenMetaByChain.get(position.chainId);
         const collateralAsset = position.collateralAsset.toLowerCase();
@@ -362,8 +349,8 @@ export class PositionsService {
               `${position.chainId}:oracle:${meta.oracleAddress}:${debtAsset}`,
             );
 
-            const liquidationThresholdBps =
-              position.liquidationThresholdBps ?? position.maxLtvBps ?? 7500;
+            // Match CRE risk-v1 fallback semantics: missing LT defaults to 8000 bps.
+            const liquidationThresholdBps = position.liquidationThresholdBps ?? 8000;
             healthFactorWad = this.computeHealthFactorWad({
               collateralAmountRaw: BigInt(position.collateralAmountRaw),
               debtAmountRaw: BigInt(position.debtAmountRaw),
@@ -401,7 +388,103 @@ export class PositionsService {
           debtPriceWad: debtPriceWad?.toString() ?? null,
         };
       }),
-      ),
+    );
+
+    // Align backend risk snapshot pricing with CRE canonical-asset semantics:
+    // base assets are valued using mapped ethereum canonical asset prices when available.
+    const canonicalAssetMap = this.buildCanonicalAssetMapFromChainConfigs();
+    const canonicalPriceByAsset = new Map<
+      string,
+      { priceWad: bigint; sourceChainId: number }
+    >();
+
+    const registerCanonicalPrice = (
+      asset: string,
+      priceWad: string | null,
+      sourceChainId: number,
+    ): void => {
+      if (!priceWad) return;
+      const parsed = BigInt(priceWad);
+      if (parsed <= 0n) return;
+      const canonicalAsset =
+        canonicalAssetMap.get(asset.toLowerCase()) ?? asset.toLowerCase();
+      const existing = canonicalPriceByAsset.get(canonicalAsset);
+      if (!existing) {
+        canonicalPriceByAsset.set(canonicalAsset, {
+          priceWad: parsed,
+          sourceChainId,
+        });
+        return;
+      }
+      if (
+        sourceChainId === ETHEREUM_SEPOLIA_CHAIN_ID &&
+        existing.sourceChainId !== ETHEREUM_SEPOLIA_CHAIN_ID
+      ) {
+        canonicalPriceByAsset.set(canonicalAsset, {
+          priceWad: parsed,
+          sourceChainId,
+        });
+      }
+    };
+
+    for (const position of enrichedPositions) {
+      registerCanonicalPrice(
+        position.collateralAsset,
+        position.collateralPriceWad,
+        position.chainId,
+      );
+      registerCanonicalPrice(position.debtAsset, position.debtPriceWad, position.chainId);
+    }
+
+    const normalizedPositions = enrichedPositions.map((position) => {
+      const canonicalCollateral =
+        canonicalAssetMap.get(position.collateralAsset) ?? position.collateralAsset;
+      const canonicalDebt =
+        canonicalAssetMap.get(position.debtAsset) ?? position.debtAsset;
+
+      const mappedCollateralPriceWad =
+        canonicalPriceByAsset.get(canonicalCollateral)?.priceWad ??
+        (position.collateralPriceWad ? BigInt(position.collateralPriceWad) : null);
+      const mappedDebtPriceWad =
+        canonicalPriceByAsset.get(canonicalDebt)?.priceWad ??
+        (position.debtPriceWad ? BigInt(position.debtPriceWad) : null);
+
+      let healthFactorWad = position.healthFactorWad;
+      if (mappedCollateralPriceWad && mappedDebtPriceWad) {
+        healthFactorWad = this.computeHealthFactorWad({
+          collateralAmountRaw: BigInt(position.collateralAmountRaw),
+          debtAmountRaw: BigInt(position.debtAmountRaw),
+          collateralPriceWad: mappedCollateralPriceWad,
+          debtPriceWad: mappedDebtPriceWad,
+          collateralDecimals: position.collateralDecimals,
+          debtDecimals: position.debtDecimals,
+          liquidationThresholdBps: position.liquidationThresholdBps ?? 8000,
+        }).toString();
+      }
+
+      return {
+        ...position,
+        healthFactorWad,
+        collateralPriceWad: mappedCollateralPriceWad?.toString() ?? null,
+        debtPriceWad: mappedDebtPriceWad?.toString() ?? null,
+      };
+    });
+
+    return {
+      user: normalizedUser,
+      generatedAt: new Date(now).toISOString(),
+      latestSyncedAt: latestSyncedAt ? latestSyncedAt.toISOString() : null,
+      oldestSyncedAt: oldestSyncedAt ? oldestSyncedAt.toISOString() : null,
+      latestAgeSec,
+      maxAgeSec,
+      isStale: stale,
+      positionCount: positions.length,
+      chains: chains.map((chain) => ({
+        chainId: chain.chainId,
+        chainKey: chain.key,
+        indexerCursorBlock: chain.indexerCursorBlock,
+      })),
+      positions: normalizedPositions,
     };
   }
 
@@ -1293,6 +1376,33 @@ export class PositionsService {
       }
     }
 
+    return canonical;
+  }
+
+  private buildCanonicalAssetMapFromChainConfigs(): Map<string, string> {
+    const canonical = new Map<string, string>();
+    try {
+      const ethConfig = this.loadChainContractsConfig('ethereum-sepolia');
+      const baseConfig = this.loadChainContractsConfig('base-sepolia');
+      const ethCollateral = (
+        ethConfig.contracts?.MockERC20_Collateral ?? ''
+      ).toLowerCase();
+      const ethDebt = (ethConfig.contracts?.MockERC20_Debt ?? '').toLowerCase();
+      const baseCollateral = (
+        baseConfig.contracts?.MockERC20_Collateral ?? ''
+      ).toLowerCase();
+      const baseDebt = (baseConfig.contracts?.MockERC20_Debt ?? '').toLowerCase();
+
+      if (ethCollateral) canonical.set(ethCollateral, ethCollateral);
+      if (ethDebt) canonical.set(ethDebt, ethDebt);
+      if (baseCollateral) canonical.set(baseCollateral, baseCollateral);
+      if (baseDebt) canonical.set(baseDebt, baseDebt);
+
+      if (baseCollateral && ethCollateral) canonical.set(baseCollateral, ethCollateral);
+      if (baseDebt && ethDebt) canonical.set(baseDebt, ethDebt);
+    } catch {
+      // best effort only
+    }
     return canonical;
   }
 
