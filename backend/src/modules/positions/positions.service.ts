@@ -13,6 +13,7 @@ import {
   ProtocolAdapterEntity,
 } from '../persistence/entities';
 import { AdapterReaderService } from './adapter-reader.service';
+import { SimulateApiGuardDto } from './positions.dto';
 import { PositionSyncError } from './types';
 
 interface ChainContractsConfig {
@@ -36,14 +37,48 @@ const ERC20_METADATA_ABI = ['function decimals() view returns (uint8)'] as const
 const ORACLE_ABI = [
   'function getPrice(address asset) view returns (uint256 price, uint256 updatedAt)',
 ] as const;
+const ERC20_SYMBOL_STRING_ABI = ['function symbol() view returns (string)'] as const;
+const ERC20_SYMBOL_BYTES32_ABI = ['function symbol() view returns (bytes32)'] as const;
 const WAD = 10n ** 18n;
+const BPS_DENOM = 10_000n;
 const MAX_UINT256 = (1n << 256n) - 1n;
+
+type Decision = 'NO_ACTION' | 'RESCUE_SAME_CHAIN' | 'RESCUE_CROSS_CHAIN' | 'ABORT';
+type RescueMode = 'TOP_UP' | 'REPAY';
+
+interface SimPosition {
+  chainId: number;
+  chainKey: string;
+  protocol: string;
+  adapterAddress: string;
+  collateralAsset: string;
+  debtAsset: string;
+  collateralAmountRaw: bigint;
+  debtAmountRaw: bigint;
+  healthFactorWad: bigint;
+  liquidationThresholdBps: bigint;
+  collateralDecimals: number;
+  debtDecimals: number;
+  collateralPriceWad: bigint | null;
+  debtPriceWad: bigint | null;
+}
+
+interface FlatPosition {
+  label: string;
+  adapterAddress: string;
+  availableCollateral: bigint;
+  chainId: number;
+  chainKey: string;
+  position: SimPosition;
+}
 
 @Injectable()
 export class PositionsService {
   private readonly logger = new Logger(PositionsService.name);
   private readonly erc20MetadataInterface = new Interface(ERC20_METADATA_ABI);
   private readonly oracleInterface = new Interface(ORACLE_ABI);
+  private readonly erc20SymbolStringInterface = new Interface(ERC20_SYMBOL_STRING_ABI);
+  private readonly erc20SymbolBytes32Interface = new Interface(ERC20_SYMBOL_BYTES32_ABI);
 
   constructor(
     private readonly chainRegistryService: ChainRegistryService,
@@ -370,6 +405,294 @@ export class PositionsService {
     };
   }
 
+  async simulateApiGuardDecision(
+    userAddress: string,
+    dto: SimulateApiGuardDto,
+  ): Promise<Record<string, unknown>> {
+    const maxAgeSec = dto.maxAgeSec ?? 600;
+    const executionChainKey = (dto.executionChainKey ?? 'ethereum-sepolia').toLowerCase();
+    const earlyWarningHfBps = dto.earlyWarningHfBps ?? 11250;
+    const onchainHfMinBps = dto.onchainHfMinBps ?? 10000;
+    const sourceFloorHfBps = dto.sourceFloorHfBps ?? 11250;
+    const reserveCapBps = dto.reserveCapBps ?? 3000;
+    const maxRescueNotionalUsd = dto.maxRescueNotionalUsd ?? 100000;
+    const minActionUsd = dto.minActionUsd ?? 10;
+    const allowCrossChain = dto.allowCrossChain ?? true;
+    const forceCrossChain = dto.forceCrossChain ?? false;
+    const sourceAdapterOverride = dto.sourceAdapter?.toLowerCase();
+    const targetAdapterOverride = dto.targetAdapter?.toLowerCase();
+
+    const snapshot = await this.getRiskSnapshot(userAddress, maxAgeSec);
+    const simPositions = snapshot.positions.map((position) =>
+      this.toSimPosition(position),
+    );
+
+    if (simPositions.length === 0) {
+      return {
+        decision: 'ABORT',
+        reason: 'No positions found for monitored adapters',
+        summary: {
+          user: userAddress.toLowerCase(),
+          positionCount: 0,
+          isStale: snapshot.isStale,
+          latestAgeSec: snapshot.latestAgeSec,
+        },
+      };
+    }
+
+    const flatPositions = this.flattenPositions(simPositions);
+    const debtBearing = flatPositions
+      .filter((item) => item.position.debtAmountRaw > 0n)
+      .sort((a, b) => {
+        if (a.position.healthFactorWad === b.position.healthFactorWad) return 0;
+        return a.position.healthFactorWad < b.position.healthFactorWad ? -1 : 1;
+      });
+
+    if (debtBearing.length === 0) {
+      return {
+        decision: 'ABORT',
+        reason: 'No debt-bearing positions found for rescue planning',
+        summary: {
+          user: userAddress.toLowerCase(),
+          positionCount: simPositions.length,
+          isStale: snapshot.isStale,
+          latestAgeSec: snapshot.latestAgeSec,
+        },
+      };
+    }
+
+    const weakest = debtBearing[0];
+    const weakestHfWad = weakest.position.healthFactorWad;
+    const canCrossChain = flatPositions.some(
+      (item) =>
+        item.availableCollateral > 0n && item.chainId !== weakest.chainId,
+    );
+    const preDecision = this.decideRoute(
+      weakestHfWad,
+      this.bpsToWad(onchainHfMinBps),
+      this.bpsToWad(earlyWarningHfBps),
+      allowCrossChain,
+      canCrossChain,
+    );
+
+    if (preDecision === 'NO_ACTION') {
+      return {
+        decision: 'NO_ACTION',
+        reason: `Guard evaluated with weakest HF ${this.formatHf(weakestHfWad)}`,
+        summary: {
+          user: userAddress.toLowerCase(),
+          positionCount: simPositions.length,
+          isStale: snapshot.isStale,
+          latestAgeSec: snapshot.latestAgeSec,
+          weakestHfWad: weakestHfWad.toString(),
+          weakestHf: this.formatHf(weakestHfWad),
+          weakestAdapter: weakest.label,
+        },
+      };
+    }
+
+    const canonicalMap = await this.buildCanonicalAssetMap(simPositions);
+    const target =
+      debtBearing.find(
+        (item) =>
+          !targetAdapterOverride ||
+          item.adapterAddress === targetAdapterOverride,
+      ) ?? debtBearing[0];
+
+    const sourcePool = flatPositions.filter(
+      (item) =>
+        item.adapterAddress !== target.adapterAddress &&
+        item.availableCollateral > 0n &&
+        item.chainKey.toLowerCase() === executionChainKey,
+    );
+
+    const sourceCandidates = sourcePool
+      .map((source) => ({
+        source,
+        mode: this.inferRescueModeFromPositions(source, target, canonicalMap),
+      }))
+      .filter(
+        (
+          item,
+        ): item is { source: FlatPosition; mode: RescueMode } =>
+          item.mode !== undefined,
+      );
+
+    if (sourceCandidates.length === 0) {
+      return {
+        decision: 'ABORT',
+        reason:
+          'No compatible rescue source with withdrawable collateral on execution chain',
+        summary: {
+          user: userAddress.toLowerCase(),
+          executionChainKey,
+          weakestHf: this.formatHf(weakestHfWad),
+          weakestAdapter: target.label,
+        },
+      };
+    }
+
+    let selected: { source: FlatPosition; mode: RescueMode } | undefined;
+    for (const candidate of sourceCandidates) {
+      if (
+        sourceAdapterOverride &&
+        candidate.source.adapterAddress !== sourceAdapterOverride
+      ) {
+        continue;
+      }
+      if (
+        !selected ||
+        candidate.source.availableCollateral > selected.source.availableCollateral
+      ) {
+        selected = candidate;
+      }
+    }
+
+    if (!selected) {
+      return {
+        decision: 'ABORT',
+        reason: 'No eligible source after same-chain-first selection',
+        summary: {
+          user: userAddress.toLowerCase(),
+          executionChainKey,
+        },
+      };
+    }
+
+    const source = selected.source;
+    const mode = selected.mode;
+    let isCrossChain = source.chainId !== target.chainId;
+    if (forceCrossChain) {
+      isCrossChain = true;
+    }
+    if (isCrossChain && !allowCrossChain) {
+      return {
+        decision: 'ABORT',
+        reason:
+          'Cross-chain rescue required by source/target location but disabled by policy',
+        summary: {
+          user: userAddress.toLowerCase(),
+          sourceChain: source.chainKey,
+          targetChain: target.chainKey,
+        },
+      };
+    }
+
+    const decimalsMap = this.buildDecimalsMap(simPositions);
+    const pricesMap = this.buildPriceMap(simPositions);
+    const getDecimals = (asset: string): number => decimalsMap.get(asset.toLowerCase()) ?? 18;
+    const getPriceWad = (asset: string): bigint | undefined =>
+      pricesMap.get(asset.toLowerCase());
+
+    const desiredAmount = this.estimateNeededAction(
+      mode,
+      target,
+      earlyWarningHfBps,
+      getPriceWad,
+      getDecimals,
+    );
+
+    const reserveSafeSource =
+      (source.availableCollateral * BigInt(10000 - reserveCapBps)) / BPS_DENOM;
+    const sourceHfSafeCap = this.computeSourceHfSafeCap(
+      source,
+      sourceFloorHfBps,
+      getPriceWad,
+      getDecimals,
+    );
+
+    let actionAmount = this.minBigInt(
+      desiredAmount,
+      this.minBigInt(reserveSafeSource, sourceHfSafeCap),
+    );
+
+    const sourceAsset = source.position.collateralAsset.toLowerCase();
+    const sourcePrice = getPriceWad(sourceAsset);
+    const sourceDecimals = getDecimals(sourceAsset);
+    let actionUsdWad = 0n;
+
+    if (sourcePrice && sourcePrice > 0n) {
+      actionUsdWad = this.toUsdWad(actionAmount, sourceDecimals, sourcePrice);
+      const maxNotionalUsdWad = BigInt(maxRescueNotionalUsd) * WAD;
+      if (actionUsdWad > maxNotionalUsdWad) {
+        actionAmount = this.fromUsdWadToAmount(
+          maxNotionalUsdWad,
+          sourceDecimals,
+          sourcePrice,
+        );
+        actionUsdWad = this.toUsdWad(actionAmount, sourceDecimals, sourcePrice);
+      }
+    }
+
+    if (actionAmount <= 0n) {
+      return {
+        decision: 'ABORT',
+        reason: 'Computed rescue amount is zero after constraints',
+        summary: {
+          user: userAddress.toLowerCase(),
+          mode,
+          desiredAmount: desiredAmount.toString(),
+          reserveSafeSource: reserveSafeSource.toString(),
+          sourceHfSafeCap: sourceHfSafeCap.toString(),
+          sourceFloorHfBps,
+        },
+      };
+    }
+
+    if (sourcePrice && actionUsdWad < BigInt(minActionUsd) * WAD) {
+      return {
+        decision: 'NO_ACTION',
+        reason: 'Computed rescue amount below minimum action threshold',
+        summary: {
+          user: userAddress.toLowerCase(),
+          mode,
+          actionAmount: actionAmount.toString(),
+          actionUsd: this.wadToFixed(actionUsdWad, 6),
+          minActionUsd,
+        },
+      };
+    }
+
+    const destinationChainSelector = isCrossChain
+      ? this.resolveChainSelectorByChainId(target.chainId)
+      : '0';
+    const decision: Decision = isCrossChain
+      ? 'RESCUE_CROSS_CHAIN'
+      : 'RESCUE_SAME_CHAIN';
+
+    return {
+      decision,
+      reason: 'Rescue plan simulated from latest risk snapshot',
+      summary: {
+        user: userAddress.toLowerCase(),
+        positionCount: simPositions.length,
+        isStale: snapshot.isStale,
+        latestAgeSec: snapshot.latestAgeSec,
+        weakestHfWad: weakestHfWad.toString(),
+        weakestHf: this.formatHf(weakestHfWad),
+      },
+      plan: {
+        mode,
+        src: `${source.position.protocol.toUpperCase()} - ${this.prettyChainLabel(source.chainKey)}`,
+        targetAdapter: `${target.position.protocol.toUpperCase()} - ${this.prettyChainLabel(target.chainKey)}`,
+        sourceAdapter: source.adapterAddress,
+        collateralAsset: source.position.collateralAsset,
+        debtAsset: target.position.debtAsset,
+        collateralAmount: actionAmount.toString(),
+        debtAmount: mode === 'REPAY' ? actionAmount.toString() : '0',
+        isCrossChain,
+        targetChain: destinationChainSelector,
+      },
+      debug: {
+        desiredAmount: desiredAmount.toString(),
+        reserveSafeSource: reserveSafeSource.toString(),
+        sourceHfSafeCap: sourceHfSafeCap.toString(),
+        actionUsd: actionUsdWad.toString(),
+        executionChainKey,
+      },
+    };
+  }
+
   private async ensureChainsSeeded(): Promise<void> {
     const existing = await this.chainRepository.count();
     if (existing > 0) {
@@ -610,6 +933,410 @@ export class PositionsService {
     const effectiveCollateralUsdWad =
       (collateralUsdWad * BigInt(liquidationThresholdBps)) / 10_000n;
     return (effectiveCollateralUsdWad * WAD) / debtUsdWad;
+  }
+
+  private toSimPosition(position: {
+    chainId: number;
+    chainKey: string;
+    protocol: string;
+    adapterAddress: string;
+    collateralAsset: string;
+    debtAsset: string;
+    collateralAmountRaw: string;
+    debtAmountRaw: string;
+    healthFactorWad: string;
+    liquidationThresholdBps: number | null;
+    collateralDecimals: number;
+    debtDecimals: number;
+    collateralPriceWad: string | null;
+    debtPriceWad: string | null;
+  }): SimPosition {
+    return {
+      chainId: position.chainId,
+      chainKey: position.chainKey,
+      protocol: position.protocol,
+      adapterAddress: position.adapterAddress.toLowerCase(),
+      collateralAsset: position.collateralAsset.toLowerCase(),
+      debtAsset: position.debtAsset.toLowerCase(),
+      collateralAmountRaw: BigInt(position.collateralAmountRaw),
+      debtAmountRaw: BigInt(position.debtAmountRaw),
+      healthFactorWad: BigInt(position.healthFactorWad),
+      liquidationThresholdBps: BigInt(position.liquidationThresholdBps ?? 8000),
+      collateralDecimals: position.collateralDecimals,
+      debtDecimals: position.debtDecimals,
+      collateralPriceWad: position.collateralPriceWad
+        ? BigInt(position.collateralPriceWad)
+        : null,
+      debtPriceWad: position.debtPriceWad ? BigInt(position.debtPriceWad) : null,
+    };
+  }
+
+  private flattenPositions(positions: SimPosition[]): FlatPosition[] {
+    const byAdapter = new Map<string, bigint>();
+    for (const position of positions) {
+      const key = `${position.chainId}:${position.adapterAddress}`;
+      byAdapter.set(
+        key,
+        (byAdapter.get(key) ?? 0n) + position.collateralAmountRaw,
+      );
+    }
+
+    return positions.map((position) => {
+      const key = `${position.chainId}:${position.adapterAddress}`;
+      return {
+        label: `${position.protocol.toLowerCase()}-${position.chainKey}`,
+        adapterAddress: position.adapterAddress,
+        availableCollateral: byAdapter.get(key) ?? 0n,
+        chainId: position.chainId,
+        chainKey: position.chainKey,
+        position,
+      };
+    });
+  }
+
+  private buildDecimalsMap(positions: SimPosition[]): Map<string, number> {
+    const map = new Map<string, number>();
+    for (const position of positions) {
+      map.set(position.collateralAsset, position.collateralDecimals);
+      map.set(position.debtAsset, position.debtDecimals);
+    }
+    return map;
+  }
+
+  private buildPriceMap(positions: SimPosition[]): Map<string, bigint> {
+    const map = new Map<string, bigint>();
+    for (const position of positions) {
+      if (position.collateralPriceWad && position.collateralPriceWad > 0n) {
+        map.set(position.collateralAsset, position.collateralPriceWad);
+      }
+      if (position.debtPriceWad && position.debtPriceWad > 0n) {
+        map.set(position.debtAsset, position.debtPriceWad);
+      }
+    }
+    return map;
+  }
+
+  private bpsToWad(bps: number): bigint {
+    return BigInt(Math.max(0, Math.trunc(bps))) * 10n ** 14n;
+  }
+
+  private decideRoute(
+    weakestEffectiveHfWad: bigint,
+    minHfWad: bigint,
+    earlyHfWad: bigint,
+    allowCrossChain: boolean,
+    canCrossChain: boolean,
+  ): Decision {
+    if (weakestEffectiveHfWad <= minHfWad || weakestEffectiveHfWad <= earlyHfWad) {
+      if (allowCrossChain && canCrossChain) {
+        return 'RESCUE_CROSS_CHAIN';
+      }
+      return 'RESCUE_SAME_CHAIN';
+    }
+    return 'NO_ACTION';
+  }
+
+  private minBigInt(a: bigint, b: bigint): bigint {
+    return a < b ? a : b;
+  }
+
+  private toUsdWad(amount: bigint, decimals: number, priceUsdWad: bigint): bigint {
+    if (amount <= 0n || priceUsdWad <= 0n) return 0n;
+    return (amount * priceUsdWad) / 10n ** BigInt(decimals);
+  }
+
+  private fromUsdWadToAmount(
+    usdWad: bigint,
+    decimals: number,
+    priceUsdWad: bigint,
+  ): bigint {
+    if (usdWad <= 0n || priceUsdWad <= 0n) return 0n;
+    return (usdWad * 10n ** BigInt(decimals)) / priceUsdWad;
+  }
+
+  private wadToFixed(wad: bigint, fractionDigits = 4): string {
+    const sign = wad < 0n ? '-' : '';
+    const abs = wad < 0n ? -wad : wad;
+    const whole = abs / WAD;
+    if (fractionDigits <= 0) return `${sign}${whole.toString()}`;
+    const fracBase = 10n ** BigInt(18 - fractionDigits);
+    const frac = (abs % WAD) / fracBase;
+    return `${sign}${whole.toString()}.${frac.toString().padStart(fractionDigits, '0')}`;
+  }
+
+  private formatHf(hfWad: bigint): string {
+    if (hfWad >= MAX_UINT256 / 2n) return 'INF';
+    return this.wadToFixed(hfWad, 4);
+  }
+
+  private canonicalAsset(asset: string, canonicalMap: Map<string, string>): string {
+    const key = asset.toLowerCase();
+    return canonicalMap.get(key) ?? key;
+  }
+
+  private inferRescueModeFromPositions(
+    source: FlatPosition,
+    target: FlatPosition,
+    canonicalMap: Map<string, string>,
+  ): RescueMode | undefined {
+    const srcCollateral = this.canonicalAsset(
+      source.position.collateralAsset,
+      canonicalMap,
+    );
+    const srcDebt = this.canonicalAsset(source.position.debtAsset, canonicalMap);
+    const tgtCollateral = this.canonicalAsset(
+      target.position.collateralAsset,
+      canonicalMap,
+    );
+    const tgtDebt = this.canonicalAsset(target.position.debtAsset, canonicalMap);
+
+    if (srcCollateral === tgtCollateral && srcDebt === tgtDebt) {
+      return 'TOP_UP';
+    }
+    if (srcCollateral === tgtDebt && srcDebt === tgtCollateral) {
+      return 'REPAY';
+    }
+    if (srcCollateral === tgtDebt) {
+      return 'REPAY';
+    }
+    if (srcCollateral === tgtCollateral) {
+      return 'TOP_UP';
+    }
+    return undefined;
+  }
+
+  private estimateNeededAction(
+    mode: RescueMode,
+    target: FlatPosition,
+    targetHfBps: number,
+    getPriceWad: (asset: string) => bigint | undefined,
+    getDecimals: (asset: string) => number,
+  ): bigint {
+    const collateralPriceWad = getPriceWad(target.position.collateralAsset);
+    const debtPriceWad = getPriceWad(target.position.debtAsset);
+    const collateralDecimals = getDecimals(target.position.collateralAsset);
+    const debtDecimals = getDecimals(target.position.debtAsset);
+    const targetHfWad = BigInt(targetHfBps) * 10n ** 14n;
+
+    if (!collateralPriceWad || !debtPriceWad || targetHfWad === 0n) {
+      return mode === 'TOP_UP'
+        ? target.position.collateralAmountRaw / 10n
+        : target.position.debtAmountRaw / 5n;
+    }
+
+    const collateralUsdWad = this.toUsdWad(
+      target.position.collateralAmountRaw,
+      collateralDecimals,
+      collateralPriceWad,
+    );
+    const debtUsdWad = this.toUsdWad(
+      target.position.debtAmountRaw,
+      debtDecimals,
+      debtPriceWad,
+    );
+    const effectiveCollateralUsdWad =
+      (collateralUsdWad * target.position.liquidationThresholdBps) / BPS_DENOM;
+
+    if (mode === 'TOP_UP') {
+      const wantedEffectiveCollateralUsdWad = (targetHfWad * debtUsdWad) / WAD;
+      if (wantedEffectiveCollateralUsdWad <= effectiveCollateralUsdWad) return 0n;
+      const deltaEffectiveUsdWad =
+        wantedEffectiveCollateralUsdWad - effectiveCollateralUsdWad;
+      if (target.position.liquidationThresholdBps === 0n) return 0n;
+      const deltaCollateralUsdWad =
+        (deltaEffectiveUsdWad * BPS_DENOM) /
+        target.position.liquidationThresholdBps;
+      return this.fromUsdWadToAmount(
+        deltaCollateralUsdWad,
+        collateralDecimals,
+        collateralPriceWad,
+      );
+    }
+
+    const maxDebtUsdAtTarget = (effectiveCollateralUsdWad * WAD) / targetHfWad;
+    if (debtUsdWad <= maxDebtUsdAtTarget) return 0n;
+    const debtReductionUsdWad = debtUsdWad - maxDebtUsdAtTarget;
+    return this.fromUsdWadToAmount(
+      debtReductionUsdWad,
+      debtDecimals,
+      debtPriceWad,
+    );
+  }
+
+  private computeSourceHfSafeCap(
+    source: FlatPosition,
+    sourceFloorHfBps: number,
+    getPriceWad: (asset: string) => bigint | undefined,
+    getDecimals: (asset: string) => number,
+  ): bigint {
+    if (sourceFloorHfBps <= 0) {
+      return source.availableCollateral;
+    }
+
+    const sourcePrice = getPriceWad(source.position.collateralAsset);
+    const sourceDebtPrice = getPriceWad(source.position.debtAsset);
+    if (!sourcePrice || !sourceDebtPrice || source.position.debtAmountRaw <= 0n) {
+      return source.availableCollateral;
+    }
+
+    const sourceCollDecimals = getDecimals(source.position.collateralAsset);
+    const sourceDebtDecimals = getDecimals(source.position.debtAsset);
+    const sourceCollUsdWad = this.toUsdWad(
+      source.position.collateralAmountRaw,
+      sourceCollDecimals,
+      sourcePrice,
+    );
+    const sourceDebtUsdWad = this.toUsdWad(
+      source.position.debtAmountRaw,
+      sourceDebtDecimals,
+      sourceDebtPrice,
+    );
+    const sourceEffectiveCollUsdWad =
+      (sourceCollUsdWad * source.position.liquidationThresholdBps) / BPS_DENOM;
+    const floorHfWad = BigInt(sourceFloorHfBps) * 10n ** 14n;
+    const minEffectiveCollAtFloorUsdWad = (floorHfWad * sourceDebtUsdWad) / WAD;
+
+    if (
+      source.position.liquidationThresholdBps === 0n ||
+      sourceEffectiveCollUsdWad <= minEffectiveCollAtFloorUsdWad
+    ) {
+      return 0n;
+    }
+
+    const headroomEffectiveUsdWad =
+      sourceEffectiveCollUsdWad - minEffectiveCollAtFloorUsdWad;
+    const headroomCollateralUsdWad =
+      (headroomEffectiveUsdWad * BPS_DENOM) /
+      source.position.liquidationThresholdBps;
+    return this.fromUsdWadToAmount(
+      headroomCollateralUsdWad,
+      sourceCollDecimals,
+      sourcePrice,
+    );
+  }
+
+  private resolveChainSelectorByChainId(chainId: number): string {
+    const chainKey = this.resolveChainKeyFromChainId(chainId);
+    const chain = this.chainRegistryService.getByKey(chainKey);
+    return chain.ccipSelector;
+  }
+
+  private prettyChainLabel(chainKey: string): string {
+    const normalized = chainKey.toLowerCase();
+    if (normalized.includes('ethereum')) return 'eth sepolia';
+    if (normalized.includes('base')) return 'base sepolia';
+    return chainKey.replace(/-/g, ' ');
+  }
+
+  private async buildCanonicalAssetMap(
+    positions: SimPosition[],
+  ): Promise<Map<string, string>> {
+    const canonical = new Map<string, string>();
+    const assetsByChain = new Map<number, Set<string>>();
+    for (const position of positions) {
+      const collateral = position.collateralAsset.toLowerCase();
+      const debt = position.debtAsset.toLowerCase();
+      canonical.set(collateral, collateral);
+      canonical.set(debt, debt);
+      if (!assetsByChain.has(position.chainId)) {
+        assetsByChain.set(position.chainId, new Set<string>());
+      }
+      assetsByChain.get(position.chainId)?.add(collateral);
+      assetsByChain.get(position.chainId)?.add(debt);
+    }
+
+    try {
+      const ethConfig = this.loadChainContractsConfig('ethereum-sepolia');
+      const baseConfig = this.loadChainContractsConfig('base-sepolia');
+      const ethCollateral = (ethConfig.contracts?.MockERC20_Collateral ?? '').toLowerCase();
+      const ethDebt = (ethConfig.contracts?.MockERC20_Debt ?? '').toLowerCase();
+      const baseCollateral = (baseConfig.contracts?.MockERC20_Collateral ?? '').toLowerCase();
+      const baseDebt = (baseConfig.contracts?.MockERC20_Debt ?? '').toLowerCase();
+
+      if (ethCollateral && baseCollateral) {
+        canonical.set(baseCollateral, ethCollateral);
+      }
+      if (ethDebt && baseDebt) {
+        canonical.set(baseDebt, ethDebt);
+      }
+    } catch {
+      // best effort canonicalization
+    }
+
+    const symbolGroups = new Map<string, Array<{ asset: string; chainId: number }>>();
+    const symbolCache = new Map<string, string>();
+    for (const [chainId, assets] of assetsByChain.entries()) {
+      const rpcUrl = this.chainRegistryService.getByKey(
+        this.resolveChainKeyFromChainId(chainId),
+      ).rpcUrl;
+      for (const asset of assets) {
+        const symbol = await this.readTokenSymbol(
+          rpcUrl,
+          asset,
+          symbolCache,
+          `${chainId}:${asset}`,
+        );
+        if (!symbol || symbol.length === 0) continue;
+        const key = symbol.toUpperCase();
+        const group = symbolGroups.get(key) ?? [];
+        group.push({ asset, chainId });
+        symbolGroups.set(key, group);
+      }
+    }
+
+    for (const group of symbolGroups.values()) {
+      if (group.length < 2) continue;
+      const preferred =
+        group.find((item) => item.chainId === 11155111)?.asset ?? group[0].asset;
+      for (const entry of group) {
+        canonical.set(entry.asset, preferred);
+      }
+    }
+
+    return canonical;
+  }
+
+  private async readTokenSymbol(
+    rpcUrl: string,
+    tokenAddress: string,
+    cache: Map<string, string>,
+    cacheKey: string,
+  ): Promise<string | undefined> {
+    const cached = cache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const calldata =
+        this.erc20SymbolStringInterface.encodeFunctionData('symbol', []);
+      const rawResult = await this.ethCall(rpcUrl, tokenAddress, calldata);
+      const decoded = this.erc20SymbolStringInterface.decodeFunctionResult(
+        'symbol',
+        rawResult,
+      );
+      const value = String(decoded[0] ?? '').trim();
+      cache.set(cacheKey, value);
+      return value;
+    } catch {
+      try {
+        const calldata =
+          this.erc20SymbolBytes32Interface.encodeFunctionData('symbol', []);
+        const rawResult = await this.ethCall(rpcUrl, tokenAddress, calldata);
+        const decoded = this.erc20SymbolBytes32Interface.decodeFunctionResult(
+          'symbol',
+          rawResult,
+        );
+        const rawHex = String(decoded[0] ?? '');
+        const bytes = Buffer.from(rawHex.replace(/^0x/, ''), 'hex');
+        const value = bytes.toString('utf8').replace(/\u0000/g, '').trim();
+        cache.set(cacheKey, value);
+        return value;
+      } catch {
+        cache.set(cacheKey, '');
+        return undefined;
+      }
+    }
   }
 
   private resolveChainKeyFromChainId(chainId: number): SupportedChainKey {

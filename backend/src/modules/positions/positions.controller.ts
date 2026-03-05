@@ -1,6 +1,16 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { AddressParamDto, RiskSnapshotQueryDto } from './positions.dto';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  ApiBody,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
+  AddressParamDto,
+  RiskSnapshotQueryDto,
+  SimulateApiGuardDto,
+} from './positions.dto';
 import { PositionsService } from './positions.service';
 
 @ApiTags('Positions')
@@ -39,5 +49,25 @@ export class PositionsController {
     @Query() query: RiskSnapshotQueryDto,
   ) {
     return this.positionsService.getRiskSnapshot(params.address, query.maxAgeSec ?? 600);
+  }
+
+  @ApiOperation({
+    summary: 'Simulate CHAINLINK_API_GUARD_V1 rescue decision and planned step',
+  })
+  @ApiParam({
+    name: 'address',
+    description: 'Wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @ApiBody({
+    required: false,
+    type: SimulateApiGuardDto,
+  })
+  @Post(':address/simulate-api-guard')
+  async simulateApiGuard(
+    @Param() params: AddressParamDto,
+    @Body() body: SimulateApiGuardDto,
+  ) {
+    return this.positionsService.simulateApiGuardDecision(params.address, body ?? {});
   }
 }
