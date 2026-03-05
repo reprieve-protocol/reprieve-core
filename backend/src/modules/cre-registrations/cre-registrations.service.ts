@@ -5,9 +5,11 @@ import { Repository } from 'typeorm';
 import {
   UserCreRegistrationRevisionEntity,
   UserCreRegistrationEntity,
+  UserRescueStepEntity,
 } from '../persistence/entities';
 import {
   ListCreRegistrationRevisionsQueryDto,
+  UpsertUserRescueStepDto,
   UpsertUserCreRegistrationDto,
 } from './cre-registrations.dto';
 
@@ -18,6 +20,8 @@ export class CreRegistrationsService {
     private readonly userCreRegistrationRepository: Repository<UserCreRegistrationEntity>,
     @InjectRepository(UserCreRegistrationRevisionEntity)
     private readonly userCreRegistrationRevisionRepository: Repository<UserCreRegistrationRevisionEntity>,
+    @InjectRepository(UserRescueStepEntity)
+    private readonly userRescueStepRepository: Repository<UserRescueStepEntity>,
   ) {}
 
   async upsertRegistration(
@@ -131,6 +135,48 @@ export class CreRegistrationsService {
     };
   }
 
+  async upsertRescueStep(
+    userAddressInput: string,
+    dto: UpsertUserRescueStepDto,
+  ): Promise<Record<string, unknown>> {
+    const userAddress = this.normalizeAddressLower(userAddressInput);
+    const now = new Date();
+    const existing = await this.userRescueStepRepository.findOne({
+      where: { userAddress },
+    });
+    const status = existing ? 'updated' : 'created';
+
+    const step = await this.userRescueStepRepository.save({
+      id: existing?.id,
+      userAddress,
+      currentStep: dto.currentStep,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+
+    return {
+      status,
+      rescueStep: this.toRescueStepDto(step),
+    };
+  }
+
+  async getRescueStep(userAddressInput: string): Promise<Record<string, unknown>> {
+    const userAddress = this.normalizeAddressLower(userAddressInput);
+    const step = await this.userRescueStepRepository.findOne({
+      where: { userAddress },
+    });
+
+    if (!step) {
+      throw new NotFoundException(
+        `Rescue step not found for user: ${getAddress(userAddress)}`,
+      );
+    }
+
+    return {
+      rescueStep: this.toRescueStepDto(step),
+    };
+  }
+
   private normalizeAddressLower(value: string): string {
     return getAddress(value).toLowerCase();
   }
@@ -148,6 +194,16 @@ export class CreRegistrationsService {
       isActive: registration.isActive,
       createdAt: registration.createdAt.toISOString(),
       updatedAt: registration.updatedAt.toISOString(),
+    };
+  }
+
+  private toRescueStepDto(step: UserRescueStepEntity): Record<string, unknown> {
+    return {
+      id: step.id,
+      userAddress: getAddress(step.userAddress),
+      currentStep: step.currentStep,
+      createdAt: step.createdAt.toISOString(),
+      updatedAt: step.updatedAt.toISOString(),
     };
   }
 }

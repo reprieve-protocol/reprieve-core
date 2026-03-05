@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   ListCreRegistrationRevisionsQueryDto,
+  UpsertUserRescueStepDto,
   UpsertUserCreRegistrationDto,
   UserAddressParamDto,
 } from './cre-registrations.dto';
@@ -41,6 +42,51 @@ export class CreRegistrationsController {
   @Get(':address/cre-registration')
   async getRegistration(@Param() params: UserAddressParamDto) {
     return this.creRegistrationsService.getRegistration(params.address);
+  }
+
+  @ApiOperation({
+    summary: 'Manually set current rescue step for a user',
+  })
+  @ApiParam({
+    name: 'address',
+    description: 'Wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @Put(':address/rescue-step')
+  async upsertRescueStep(
+    @Param() params: UserAddressParamDto,
+    @Body() body: UpsertUserRescueStepDto,
+  ) {
+    return this.creRegistrationsService.upsertRescueStep(params.address, body);
+  }
+
+  @ApiOperation({
+    summary: 'Manually set current rescue step for a user (POST alias)',
+  })
+  @ApiParam({
+    name: 'address',
+    description: 'Wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @Post(':address/rescue-step')
+  async postRescueStep(
+    @Param() params: UserAddressParamDto,
+    @Body() body: UpsertUserRescueStepDto,
+  ) {
+    return this.creRegistrationsService.upsertRescueStep(params.address, body);
+  }
+
+  @ApiOperation({
+    summary: 'Get current rescue step for a user',
+  })
+  @ApiParam({
+    name: 'address',
+    description: 'Wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @Get(':address/rescue-step')
+  async getRescueStep(@Param() params: UserAddressParamDto) {
+    return this.creRegistrationsService.getRescueStep(params.address);
   }
 
   @ApiOperation({

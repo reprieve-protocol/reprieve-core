@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   UserCreRegistrationRevisionEntity,
   UserCreRegistrationEntity,
+  UserRescueStepEntity,
 } from '../persistence/entities';
 import { CreRegistrationsController } from './cre-registrations.controller';
 import { CreRegistrationsService } from './cre-registrations.service';
@@ -12,6 +13,7 @@ import { CreRegistrationsService } from './cre-registrations.service';
     TypeOrmModule.forFeature([
       UserCreRegistrationEntity,
       UserCreRegistrationRevisionEntity,
+      UserRescueStepEntity,
     ]),
   ],
   controllers: [CreRegistrationsController],

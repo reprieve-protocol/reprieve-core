@@ -123,3 +123,17 @@ export class ListCreRegistrationRevisionsQueryDto {
   @Max(100)
   limit?: number = 20;
 }
+
+export class UpsertUserRescueStepDto {
+  @ApiProperty({
+    description: 'Current rescue plan step for the user',
+    minimum: 0,
+    maximum: 4,
+    example: 2,
+  })
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(0)
+  @Max(4)
+  currentStep!: number;
+}
