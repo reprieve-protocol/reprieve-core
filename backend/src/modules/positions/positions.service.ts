@@ -1,11 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { Interface, ZeroAddress } from 'ethers';
 import { In, Not, Repository } from 'typeorm';
 import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 import { ChainRegistryService } from '../chains/chain-registry.service';
+import { resolveContractsConfigFilePath } from '../chains/contracts-config-path.util';
 import {
   ChainEntity,
   PositionSnapshotEntity,
@@ -28,10 +29,22 @@ interface ChainTokenMeta {
   debtAsset: string;
   collateralDecimals: number;
   debtDecimals: number;
+  oracleAddress: string;
 }
+
+const ERC20_METADATA_ABI = ['function decimals() view returns (uint8)'] as const;
+const ORACLE_ABI = [
+  'function getPrice(address asset) view returns (uint256 price, uint256 updatedAt)',
+] as const;
+const WAD = 10n ** 18n;
+const MAX_UINT256 = (1n << 256n) - 1n;
 
 @Injectable()
 export class PositionsService {
+  private readonly logger = new Logger(PositionsService.name);
+  private readonly erc20MetadataInterface = new Interface(ERC20_METADATA_ABI);
+  private readonly oracleInterface = new Interface(ORACLE_ABI);
+
   constructor(
     private readonly chainRegistryService: ChainRegistryService,
     private readonly adapterReaderService: AdapterReaderService,
@@ -177,7 +190,7 @@ export class PositionsService {
       chainKey: string;
       indexerCursorBlock: string | null;
     }>;
-    positions: Array<{
+      positions: Array<{
       chainId: number;
       chainKey: string;
       protocol: string;
@@ -193,6 +206,8 @@ export class PositionsService {
       collateralDecimals: number;
       debtDecimals: number;
       syncedAt: string;
+      collateralPriceWad: string | null;
+      debtPriceWad: string | null;
     }>;
   }> {
     const normalizedUser = userAddress.toLowerCase();
@@ -230,8 +245,12 @@ export class PositionsService {
         debtAsset: (contracts.MockERC20_Debt ?? '').toLowerCase(),
         collateralDecimals: config.tokenParams?.collateral?.decimals ?? 18,
         debtDecimals: config.tokenParams?.debt?.decimals ?? 18,
+        oracleAddress: (contracts.MockPriceOracle ?? ZeroAddress).toLowerCase(),
       });
     }
+
+    const decimalsCache = new Map<string, number>();
+    const priceCache = new Map<string, bigint>();
 
     const now = Date.now();
     const latestSyncedAt = positions.length > 0 ? positions[0].syncedAt : null;
@@ -256,18 +275,76 @@ export class PositionsService {
         chainKey: chain.key,
         indexerCursorBlock: chain.indexerCursorBlock,
       })),
-      positions: positions.map((position) => {
+      positions: await Promise.all(
+        positions.map(async (position) => {
         const chain = chainById.get(position.chainId);
         const meta = tokenMetaByChain.get(position.chainId);
         const collateralAsset = position.collateralAsset.toLowerCase();
         const debtAsset = position.debtAsset.toLowerCase();
 
-        const collateralDecimals =
+        let collateralDecimals =
           meta && collateralAsset === meta.collateralAsset
             ? meta.collateralDecimals
             : 18;
-        const debtDecimals =
+        let debtDecimals =
           meta && debtAsset === meta.debtAsset ? meta.debtDecimals : 18;
+
+        let collateralPriceWad: bigint | null = null;
+        let debtPriceWad: bigint | null = null;
+        let healthFactorWad = position.healthFactorWad;
+
+        if (chain && meta && meta.oracleAddress !== ZeroAddress.toLowerCase()) {
+          try {
+            const chainConfig = this.chainRegistryService.getByKey(
+              this.resolveChainKeyFromChainId(position.chainId),
+            );
+            collateralDecimals = await this.readTokenDecimals(
+              chainConfig.rpcUrl,
+              collateralAsset,
+              decimalsCache,
+              `${position.chainId}:collateral:${collateralAsset}`,
+              collateralDecimals,
+            );
+            debtDecimals = await this.readTokenDecimals(
+              chainConfig.rpcUrl,
+              debtAsset,
+              decimalsCache,
+              `${position.chainId}:debt:${debtAsset}`,
+              debtDecimals,
+            );
+            collateralPriceWad = await this.readOraclePriceWad(
+              chainConfig.rpcUrl,
+              meta.oracleAddress,
+              collateralAsset,
+              priceCache,
+              `${position.chainId}:oracle:${meta.oracleAddress}:${collateralAsset}`,
+            );
+            debtPriceWad = await this.readOraclePriceWad(
+              chainConfig.rpcUrl,
+              meta.oracleAddress,
+              debtAsset,
+              priceCache,
+              `${position.chainId}:oracle:${meta.oracleAddress}:${debtAsset}`,
+            );
+
+            const liquidationThresholdBps =
+              position.liquidationThresholdBps ?? position.maxLtvBps ?? 7500;
+            healthFactorWad = this.computeHealthFactorWad({
+              collateralAmountRaw: BigInt(position.collateralAmountRaw),
+              debtAmountRaw: BigInt(position.debtAmountRaw),
+              collateralPriceWad,
+              debtPriceWad,
+              collateralDecimals,
+              debtDecimals,
+              liquidationThresholdBps,
+            }).toString();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logger.warn(
+              `Risk snapshot HF recalculation fallback for chainId=${position.chainId} adapter=${position.adapterAddress}: ${message}`,
+            );
+          }
+        }
 
         return {
           chainId: position.chainId,
@@ -278,15 +355,18 @@ export class PositionsService {
           debtAsset,
           collateralAmountRaw: position.collateralAmountRaw,
           debtAmountRaw: position.debtAmountRaw,
-          healthFactorWad: position.healthFactorWad,
+          healthFactorWad,
           ltvBps: position.ltvBps,
           maxLtvBps: position.maxLtvBps,
           liquidationThresholdBps: position.liquidationThresholdBps,
           collateralDecimals,
           debtDecimals,
           syncedAt: position.syncedAt.toISOString(),
+          collateralPriceWad: collateralPriceWad?.toString() ?? null,
+          debtPriceWad: debtPriceWad?.toString() ?? null,
         };
       }),
+      ),
     };
   }
 
@@ -394,14 +474,142 @@ export class PositionsService {
   }
 
   private loadChainContractsConfig(chainKey: SupportedChainKey): ChainContractsConfig {
-    const baseDir = this.configService.get<string>(
-      'CONTRACTS_CONFIG_DIR',
-      './contracts-config',
+    const filePath = resolveContractsConfigFilePath(
+      this.configService,
+      `${chainKey}.json`,
     );
-
-    const filePath = path.resolve(process.cwd(), baseDir, `${chainKey}.json`);
     const raw = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(raw) as ChainContractsConfig;
+  }
+
+  private async ethCall(
+    rpcUrl: string,
+    to: string,
+    data: string,
+  ): Promise<string> {
+    const payload = {
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'eth_call',
+      params: [
+        {
+          to,
+          data,
+        },
+        'latest',
+      ],
+    };
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error(`RPC request failed with status ${response.status}`);
+    }
+    const dataJson = (await response.json()) as {
+      result?: string;
+      error?: { message?: string };
+    };
+    if (dataJson.error) {
+      throw new Error(`RPC eth_call failed: ${dataJson.error.message ?? 'unknown error'}`);
+    }
+    if (!dataJson.result || typeof dataJson.result !== 'string') {
+      throw new Error('RPC eth_call returned invalid result');
+    }
+    return dataJson.result;
+  }
+
+  private async readTokenDecimals(
+    rpcUrl: string,
+    tokenAddress: string,
+    cache: Map<string, number>,
+    cacheKey: string,
+    fallbackDecimals: number,
+  ): Promise<number> {
+    const cached = cache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const calldata = this.erc20MetadataInterface.encodeFunctionData('decimals', []);
+      const rawResult = await this.ethCall(rpcUrl, tokenAddress, calldata);
+      const decoded = this.erc20MetadataInterface.decodeFunctionResult(
+        'decimals',
+        rawResult,
+      );
+      const decimals = decoded[0];
+      const resolved = Number(decimals);
+      cache.set(cacheKey, resolved);
+      return resolved;
+    } catch {
+      cache.set(cacheKey, fallbackDecimals);
+      return fallbackDecimals;
+    }
+  }
+
+  private async readOraclePriceWad(
+    rpcUrl: string,
+    oracleAddress: string,
+    assetAddress: string,
+    cache: Map<string, bigint>,
+    cacheKey: string,
+  ): Promise<bigint> {
+    const cached = cache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const calldata = this.oracleInterface.encodeFunctionData('getPrice', [assetAddress]);
+    const rawResult = await this.ethCall(rpcUrl, oracleAddress, calldata);
+    const decoded = this.oracleInterface.decodeFunctionResult('getPrice', rawResult);
+    const price = decoded[0] as bigint;
+    cache.set(cacheKey, price);
+    return price;
+  }
+
+  private computeHealthFactorWad(params: {
+    collateralAmountRaw: bigint;
+    debtAmountRaw: bigint;
+    collateralPriceWad: bigint;
+    debtPriceWad: bigint;
+    collateralDecimals: number;
+    debtDecimals: number;
+    liquidationThresholdBps: number;
+  }): bigint {
+    const {
+      collateralAmountRaw,
+      debtAmountRaw,
+      collateralPriceWad,
+      debtPriceWad,
+      collateralDecimals,
+      debtDecimals,
+      liquidationThresholdBps,
+    } = params;
+
+    if (debtAmountRaw <= 0n) {
+      return MAX_UINT256;
+    }
+    if (debtPriceWad <= 0n || collateralPriceWad <= 0n) {
+      return 0n;
+    }
+
+    const collateralDenominator = 10n ** BigInt(collateralDecimals);
+    const debtDenominator = 10n ** BigInt(debtDecimals);
+
+    const collateralUsdWad =
+      (collateralAmountRaw * collateralPriceWad) / collateralDenominator;
+    const debtUsdWad = (debtAmountRaw * debtPriceWad) / debtDenominator;
+    if (debtUsdWad <= 0n) {
+      return MAX_UINT256;
+    }
+
+    const effectiveCollateralUsdWad =
+      (collateralUsdWad * BigInt(liquidationThresholdBps)) / 10_000n;
+    return (effectiveCollateralUsdWad * WAD) / debtUsdWad;
   }
 
   private resolveChainKeyFromChainId(chainId: number): SupportedChainKey {
