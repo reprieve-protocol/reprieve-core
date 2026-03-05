@@ -26,6 +26,7 @@ export interface AppEnv {
   INDEXER_BLOCK_WINDOW: string;
   INDEXER_CONFIRMATIONS: string;
   INDEXER_POLL_INTERVAL_MS: string;
+  INDEXER_RUN_IN_API: string;
   PROJECTION_REBUILD_BATCH_SIZE: string;
   RELAY_POLL_INTERVAL_MS: string;
   RELAY_BATCH_SIZE: string;
@@ -87,6 +88,7 @@ export const validateEnv = (rawEnv: Record<string, unknown>): AppEnv => {
     INDEXER_BLOCK_WINDOW: String(rawEnv.INDEXER_BLOCK_WINDOW ?? '1000'),
     INDEXER_CONFIRMATIONS: String(rawEnv.INDEXER_CONFIRMATIONS ?? '0'),
     INDEXER_POLL_INTERVAL_MS: String(rawEnv.INDEXER_POLL_INTERVAL_MS ?? '15000'),
+    INDEXER_RUN_IN_API: String(rawEnv.INDEXER_RUN_IN_API ?? 'true'),
     PROJECTION_REBUILD_BATCH_SIZE: String(rawEnv.PROJECTION_REBUILD_BATCH_SIZE ?? '500'),
     RELAY_POLL_INTERVAL_MS: String(rawEnv.RELAY_POLL_INTERVAL_MS ?? '15000'),
     RELAY_BATCH_SIZE: String(rawEnv.RELAY_BATCH_SIZE ?? '5'),

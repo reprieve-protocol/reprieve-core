@@ -47,6 +47,8 @@
 ## Notes
 - `ETHEREUM_SEPOLIA_RPC_URL` and `BASE_SEPOLIA_RPC_URL` are required at startup.
 - `CONTRACTS_CONFIG_DIR` defaults to `./contracts-config`.
+- `INDEXER_RUN_IN_API` defaults to `true` (API process also runs the indexer loop).
+  - Set `INDEXER_RUN_IN_API=false` when running a dedicated `indexer:start` process to avoid duplicate indexers.
 - Relay worker submits EVM tx directly (no shell-out). Set one of:
   - `RELAY_SIGNER_PRIVATE_KEY`
   - chain-specific `ETHEREUM_SEPOLIA_PRIVATE_KEY` / `BASE_SEPOLIA_PRIVATE_KEY`

@@ -28,6 +28,7 @@ services:
     environment:
       DB_HOST: postgres
       CONTRACTS_CONFIG_DIR: /app/contracts-config
+      INDEXER_RUN_IN_API: "true"
       NODE_ENV: production
       APP_PORT: 3001
     depends_on:

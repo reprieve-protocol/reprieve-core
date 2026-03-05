@@ -1,10 +1,12 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { GlobalHttpExceptionFilter } from './common/filters/global-http-exception.filter';
+import { RescueHistoryService } from './modules/rescue-history/rescue-history.service';
 
 async function bootstrap(): Promise<void> {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
@@ -41,6 +43,18 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.APP_PORT ?? 3001);
   await app.listen(port);
+
+  const runIndexerInApi = String(process.env.INDEXER_RUN_IN_API ?? 'true') !== 'false';
+  if (runIndexerInApi) {
+    const rescueHistoryService = app.get(RescueHistoryService);
+    logger.log('INDEXER_RUN_IN_API enabled; starting indexer loop in API process');
+    void rescueHistoryService.runIndexerLoop().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`Indexer loop crashed in API process: ${message}`);
+    });
+  } else {
+    logger.log('INDEXER_RUN_IN_API disabled; API process will not run indexer loop');
+  }
 }
 
 void bootstrap();
