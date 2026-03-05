@@ -759,7 +759,7 @@ export class RelayService implements OnModuleInit {
 
     const baseDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
     const configPath = path.resolve(
       process.cwd(),

@@ -33,8 +33,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ../contracts/config:/app/contracts-config:ro
     command: sh -c "npm run migration:run && npm run start:api:prod"
     ports:
       - "3001:3001"
@@ -65,8 +63,6 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    volumes:
-      - ../contracts/config:/app/contracts-config:ro
     command: npm run start:indexer:prod
 
   relay:
@@ -86,8 +82,6 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    volumes:
-      - ../contracts/config:/app/contracts-config:ro
     command: npm run start:relay:prod
 
 volumes:

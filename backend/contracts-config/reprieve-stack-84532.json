@@ -1,0 +1,15 @@
+{
+    "chainId": 84532,
+    "contracts": {
+        "AdapterRegistry": "0x587fBE3fEccbB6300E8AB732093B31a9B503620B",
+        "RescueLog": "0x4f20e421203604D3A337f20807418A933124dE33",
+        "RescueEscrow": "0x688426E9ac2129b9AE815C0f4E36aDa65a31AFA0",
+        "RescueExecutor": "0xd1581fe379Be0F9E0aC835Aca2B02959C18B5e43",
+        "CCIPReceiver": "0xF03b518f9CF3F81B2A0BE048f2d73a6b624d2C27",
+        "HealthMonitor": "0xC4219Be02e4d7DEc56424162E9f535268E14B263"
+    },
+    "wiring": {
+        "workflow": "0x28b94B571f8F3FEB444075B65054FFba4e10D49a",
+        "ccipRouter": "0xAE39156C5FCBAB6E5CfaBbdaDD3207aCd2BAdeac"
+    }
+}

@@ -20,7 +20,7 @@ export class ArtifactAddressLoaderService {
 
     const baseDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
 
     return path.resolve(process.cwd(), baseDir, `${chainKey}.json`);

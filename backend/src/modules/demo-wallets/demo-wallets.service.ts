@@ -1233,7 +1233,7 @@ export class DemoWalletsService {
 
     const contractsConfigDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
     const filePath = path.resolve(
       process.cwd(),

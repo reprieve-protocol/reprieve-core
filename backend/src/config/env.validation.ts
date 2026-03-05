@@ -81,7 +81,7 @@ export const validateEnv = (rawEnv: Record<string, unknown>): AppEnv => {
     DB_DISABLE: String(rawEnv.DB_DISABLE ?? 'false'),
     ETHEREUM_SEPOLIA_RPC_URL: String(rawEnv.ETHEREUM_SEPOLIA_RPC_URL),
     BASE_SEPOLIA_RPC_URL: String(rawEnv.BASE_SEPOLIA_RPC_URL),
-    CONTRACTS_CONFIG_DIR: String(rawEnv.CONTRACTS_CONFIG_DIR ?? '../contracts/config'),
+    CONTRACTS_CONFIG_DIR: String(rawEnv.CONTRACTS_CONFIG_DIR ?? './contracts-config'),
     ETHEREUM_SEPOLIA_START_BLOCK: String(rawEnv.ETHEREUM_SEPOLIA_START_BLOCK ?? '0'),
     BASE_SEPOLIA_START_BLOCK: String(rawEnv.BASE_SEPOLIA_START_BLOCK ?? '0'),
     INDEXER_BLOCK_WINDOW: String(rawEnv.INDEXER_BLOCK_WINDOW ?? '1000'),

@@ -396,7 +396,7 @@ export class PositionsService {
   private loadChainContractsConfig(chainKey: SupportedChainKey): ChainContractsConfig {
     const baseDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
 
     const filePath = path.resolve(process.cwd(), baseDir, `${chainKey}.json`);

@@ -93,7 +93,7 @@ export class ReprieveAddressesService {
   private loadReprieveStackConfig(chainId: number): ReprieveStackConfig {
     const baseDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
 
     const filePath = path.resolve(
@@ -113,7 +113,7 @@ export class ReprieveAddressesService {
   private loadLendingContractsConfig(chainKey: SupportedChainKey): LendingContractsConfig {
     const baseDir = this.configService.get<string>(
       'CONTRACTS_CONFIG_DIR',
-      '../contracts/config',
+      './contracts-config',
     );
 
     const filePath = path.resolve(process.cwd(), baseDir, `${chainKey}.json`);

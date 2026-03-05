@@ -1,0 +1,14 @@
+{
+    "chainId": 84532,
+    "contracts": {
+        "MockCCIPRouter": "0xAE39156C5FCBAB6E5CfaBbdaDD3207aCd2BAdeac",
+        "LinkToken": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410"
+    },
+    "config": {
+        "sourceChainSelector": 10344971235874465080,
+        "fees": {
+            "baseSepolia": "10000000000000000",
+            "ethereumSepolia": "15000000000000000"
+        }
+    }
+}

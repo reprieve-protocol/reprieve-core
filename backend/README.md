@@ -41,12 +41,12 @@
 - Stop stack:
   - `docker compose down`
 - Important:
-  - Compose mounts `../contracts/config` into containers as `/app/contracts-config`.
+  - Contract config is bundled in this folder at `backend/contracts-config`.
   - `CONTRACTS_CONFIG_DIR` is set automatically in compose to `/app/contracts-config`.
 
 ## Notes
 - `ETHEREUM_SEPOLIA_RPC_URL` and `BASE_SEPOLIA_RPC_URL` are required at startup.
-- `CONTRACTS_CONFIG_DIR` defaults to `../contracts/config`.
+- `CONTRACTS_CONFIG_DIR` defaults to `./contracts-config`.
 - Relay worker submits EVM tx directly (no shell-out). Set one of:
   - `RELAY_SIGNER_PRIVATE_KEY`
   - chain-specific `ETHEREUM_SEPOLIA_PRIVATE_KEY` / `BASE_SEPOLIA_PRIVATE_KEY`

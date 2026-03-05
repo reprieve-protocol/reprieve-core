@@ -1,0 +1,40 @@
+{
+    "chainId": 11155111,
+    "chainName": "Ethereum Sepolia",
+    "rpcEnvVar": "ETHEREUM_SEPOLIA_RPC",
+    "deployerEnvVar": "ETHEREUM_SEPOLIA_DEPLOYER_KEY",
+    "contracts": {
+        "MockPriceOracle": "0xf7FF29381Be343398e014cB00d48A1c4698BD224",
+        "MockERC20_Collateral": "0x4c87EA388AdE37f6A556146B4fF6ff2A12192968",
+        "MockERC20_Debt": "0x7C31b54EB6712B308cf27aA7e8d2012DcfA92E4E",
+        "MockAavePool": "0x9707e23823836DfC7d46866a107F7b0374c39703",
+        "MockAToken": "0x9F871703BB93c51B406fff6Ab44aD04916325d11",
+        "MockCompoundComet": "0x050E7a763Cb1C8071C0A2003F5Fda0d9d87a581b",
+        "MockCToken": "0xC31684aC1cdAE9E29f4711d97a117eE7eDa29C67",
+        "MockMorphoMarket": "0x669a53533817Edc2189612bc0b5af72eD38Bfff3",
+        "MockVaultShare": "0xaBA5ebA5AE8a5C6795e83Da834bDE4bc1b667D51",
+        "AaveLikeAdapter": "0x9a2389d74e6318C67824339e37450437b4De7027",
+        "CompoundLikeAdapter": "0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa",
+        "MorphoLikeAdapter": "0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68"
+    },
+    "riskParams": {
+        "maxLtvBps": 7500,
+        "liquidationThresholdBps": 8000,
+        "liquidationBonusBps": 500,
+        "borrowAprBps": 500
+    },
+    "tokenParams": {
+        "collateral": {
+            "name": "Wrapped Ether",
+            "symbol": "WETH",
+            "decimals": 18,
+            "initialPriceWad": "2000000000000000000000"
+        },
+        "debt": {
+            "name": "USD Coin",
+            "symbol": "USDC",
+            "decimals": 6,
+            "initialPriceWad": "1000000000000000000"
+        }
+    }
+}
