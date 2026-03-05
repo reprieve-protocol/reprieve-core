@@ -575,12 +575,22 @@ export class PositionsService {
     }
 
     const canonicalMap = await this.buildCanonicalAssetMap(simPositions);
-    const target =
-      debtBearing.find(
-        (item) =>
-          !targetAdapterOverride ||
-          item.adapterAddress === targetAdapterOverride,
-      ) ?? debtBearing[0];
+    const target = targetAdapterOverride
+      ? debtBearing.find((item) => item.adapterAddress === targetAdapterOverride)
+      : weakest;
+
+    if (!target) {
+      return {
+        decision: 'ABORT',
+        reason: 'Requested target adapter is not debt-bearing for this user',
+        summary: {
+          user: userAddress.toLowerCase(),
+          requestedTargetAdapter: targetAdapterOverride,
+          weakestAdapter: weakest.label,
+          weakestHf: this.formatHf(weakestHfWad),
+        },
+      };
+    }
 
     const sourcePool = flatPositions.filter(
       (item) =>

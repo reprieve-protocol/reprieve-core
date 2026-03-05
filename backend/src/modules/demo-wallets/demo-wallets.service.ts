@@ -126,6 +126,8 @@ const DEMO_NATIVE_FAUCET_CAPS = {
   'ethereum-sepolia': parseEther('0.0001'),
   'base-sepolia': parseEther('0.00001'),
 } as const;
+const DEMO_TARGET_ETH_COMPOUND_HF = '1.5';
+const DEMO_TARGET_BASE_COMPOUND_HF = '1.2';
 
 @Injectable()
 export class DemoWalletsService {
@@ -758,7 +760,7 @@ export class DemoWalletsService {
 
     const aaveSupplyWeth = this.randomHuman(45, 75, 4);
     const ethCollWeth = this.randomHuman(9, 16, 4);
-    const ethTargetHf = this.randomHuman(1.35, 1.75, 4);
+    const ethTargetHf = DEMO_TARGET_ETH_COMPOUND_HF;
     const ethDebtUsdc = this.computeDebtHuman(
       ethCollWeth,
       ethWethPriceUsd,
@@ -775,7 +777,7 @@ export class DemoWalletsService {
     }
 
     if (rescueMode === RescueModeDto.TOP_UP) {
-      const baseTargetHf = this.randomHuman(1.04, 1.12, 4);
+      const baseTargetHf = DEMO_TARGET_BASE_COMPOUND_HF;
       const baseCollWeth = this.randomHuman(7, 13, 4);
       const baseDebtUsdc = this.computeDebtHuman(
         baseCollWeth,
@@ -829,7 +831,7 @@ export class DemoWalletsService {
       );
     }
 
-    const baseTargetHf = this.randomHuman(1.04, 1.12, 4);
+    const baseTargetHf = DEMO_TARGET_BASE_COMPOUND_HF;
     const baseCollUsdc = this.randomHuman(15000, 28000, 2);
     const baseDebtWeth = this.computeDebtHuman(
       baseCollUsdc,
