@@ -53,7 +53,8 @@
     "defaultMode": "TOP_UP",
     "allowCrossChain": true,
     "reserveCapBps": 3000,
-    "minActionUsd": 10
+    "minActionUsd": 10,
+    "targetHfBps": 14500
   },
   "crossChain": {
     "sourceChainSelector": "16015286601757825753",

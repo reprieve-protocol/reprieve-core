@@ -17206,7 +17206,8 @@ var parseRescuePolicy = (value2) => {
     defaultMode,
     allowCrossChain: requireBoolean(value2.allowCrossChain, "rescue.allowCrossChain"),
     reserveCapBps: requireNumber(value2.reserveCapBps, "rescue.reserveCapBps", 1, 1e4),
-    minActionUsd: value2.minActionUsd === undefined ? 0 : requireNumber(value2.minActionUsd, "rescue.minActionUsd", 0)
+    minActionUsd: value2.minActionUsd === undefined ? 0 : requireNumber(value2.minActionUsd, "rescue.minActionUsd", 0),
+    targetHfBps: value2.targetHfBps === undefined ? undefined : requireNumber(value2.targetHfBps, "rescue.targetHfBps", 1e4)
   };
 };
 var parseCrossChain = (value2) => {
@@ -18685,7 +18686,8 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       mode
     });
   }
-  const desiredAmount = asBigInt(body.transferAmount) ?? estimateNeededAction(mode, target, config.thresholds.earlyWarningHfBps, getPriceWad, getDecimals);
+  const planningTargetHfBps = Math.max(1e4, Math.trunc(asNumber(body.targetHfBps) ?? config.rescue.targetHfBps ?? config.thresholds.earlyWarningHfBps));
+  const desiredAmount = asBigInt(body.transferAmount) ?? estimateNeededAction(mode, target, planningTargetHfBps, getPriceWad, getDecimals);
   const reserveSafeSource = source.availableCollateral * BigInt(1e4 - config.rescue.reserveCapBps) / BPS_DENOM2;
   let sourceHfSafeCap = source.availableCollateral;
   const sourceFloorHfBps = Number(asBigInt(body.sourceFloorHfBps) ?? BigInt(config.thresholds.earlyWarningHfBps));
@@ -18730,6 +18732,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       reserveSafeSource: reserveSafeSource.toString(),
       sourceHfSafeCap: sourceHfSafeCap.toString(),
       sourceFloorHfBps,
+      targetHfBps: planningTargetHfBps,
       ...guard.metadata
     });
   }
@@ -18743,6 +18746,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
         actionAmount: actionAmount.toString(),
         actionUsd: wadToFixed(actionUsdWad, 6),
         minActionUsd,
+        targetHfBps: planningTargetHfBps,
         ...guard.metadata
       });
     }
@@ -18786,6 +18790,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
         runMode,
         rescueMode: mode,
         plannedCrossChain: useCrossChain,
+        targetHfBps: planningTargetHfBps,
         planPreview: describePlan(step, mode, execId)
       }
     });
@@ -18856,6 +18861,7 @@ var runChainlinkApiGuardFlow = (runtime2, config, trigger, body) => {
       sourceAsset: step.collateralAsset,
       targetAsset: defaultTargetAsset,
       amount: actionAmount.toString(),
+      targetHfBps: planningTargetHfBps,
       sourceFloorHfBps,
       sourceHfSafeCap: sourceHfSafeCap.toString(),
       crossChain: useCrossChain,

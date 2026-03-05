@@ -497,6 +497,7 @@ export class PositionsService {
     const earlyWarningHfBps = dto.earlyWarningHfBps ?? 11250;
     const onchainHfMinBps = dto.onchainHfMinBps ?? 10000;
     const sourceFloorHfBps = dto.sourceFloorHfBps ?? 11250;
+    const targetHfBps = dto.targetHfBps ?? 14500;
     const reserveCapBps = dto.reserveCapBps ?? 3000;
     const maxRescueNotionalUsd = dto.maxRescueNotionalUsd ?? 100000;
     const minActionUsd = dto.minActionUsd ?? 10;
@@ -680,7 +681,7 @@ export class PositionsService {
     const desiredAmount = this.estimateNeededAction(
       mode,
       target,
-      earlyWarningHfBps,
+      targetHfBps,
       getPriceWad,
       getDecimals,
     );
@@ -724,6 +725,7 @@ export class PositionsService {
         summary: {
           user: userAddress.toLowerCase(),
           mode,
+          targetHfBps,
           desiredAmount: desiredAmount.toString(),
           reserveSafeSource: reserveSafeSource.toString(),
           sourceHfSafeCap: sourceHfSafeCap.toString(),
@@ -739,6 +741,7 @@ export class PositionsService {
         summary: {
           user: userAddress.toLowerCase(),
           mode,
+          targetHfBps,
           actionAmount: actionAmount.toString(),
           actionUsd: this.wadToFixed(actionUsdWad, 6),
           minActionUsd,
@@ -777,6 +780,7 @@ export class PositionsService {
         targetChain: destinationChainSelector,
       },
       debug: {
+        targetHfBps,
         desiredAmount: desiredAmount.toString(),
         reserveSafeSource: reserveSafeSource.toString(),
         sourceHfSafeCap: sourceHfSafeCap.toString(),

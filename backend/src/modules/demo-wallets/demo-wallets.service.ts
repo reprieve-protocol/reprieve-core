@@ -754,9 +754,7 @@ export class DemoWalletsService {
     );
 
     const ethWethPriceUsd = await this.getOraclePriceUsd(ethContext, ethWeth);
-    const ethUsdcPriceUsd = await this.getOraclePriceUsd(ethContext, ethUsdc);
     const baseWethPriceUsd = await this.getOraclePriceUsd(baseContext, baseWeth);
-    const baseUsdcPriceUsd = await this.getOraclePriceUsd(baseContext, baseUsdc);
 
     const aaveSupplyWeth = this.randomHuman(45, 75, 4);
     const ethCollWeth = this.randomHuman(9, 16, 4);
@@ -765,7 +763,6 @@ export class DemoWalletsService {
       ethCollWeth,
       ethWethPriceUsd,
       ethTargetHf,
-      ethUsdcPriceUsd,
     );
 
     if (Number(ethDebtUsdc) < minBorrowUsd) {
@@ -783,7 +780,6 @@ export class DemoWalletsService {
         baseCollWeth,
         baseWethPriceUsd,
         baseTargetHf,
-        baseUsdcPriceUsd,
       );
       if (Number(baseDebtUsdc) < minBorrowUsd) {
         throw new Error(
@@ -835,9 +831,8 @@ export class DemoWalletsService {
     const baseCollUsdc = this.randomHuman(15000, 28000, 2);
     const baseDebtWeth = this.computeDebtHuman(
       baseCollUsdc,
-      baseUsdcPriceUsd,
+      1,
       baseTargetHf,
-      baseWethPriceUsd,
     );
 
     if (Number(baseCollUsdc) < minBorrowUsd) {
@@ -1279,21 +1274,19 @@ export class DemoWalletsService {
     collateralAmountHuman: string,
     collateralPriceUsd: number,
     targetHf: string,
-    debtPriceUsd: number,
   ): string {
     const collateral = Number(collateralAmountHuman);
     const hf = Number(targetHf);
-    const debtPrice = Number(debtPriceUsd);
     const collateralPrice = Number(collateralPriceUsd);
+    // BaseLendingEngine math assumes debt token price = 1 USD.
+    const debtPrice = 1;
 
     if (
       !Number.isFinite(collateral) ||
       !Number.isFinite(hf) ||
-      !Number.isFinite(debtPrice) ||
       !Number.isFinite(collateralPrice) ||
       collateral <= 0 ||
       hf <= 1 ||
-      debtPrice <= 0 ||
       collateralPrice <= 0
     ) {
       throw new Error('Invalid values while computing debt amount');

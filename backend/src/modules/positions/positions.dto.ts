@@ -118,6 +118,17 @@ export class SimulateApiGuardDto {
   sourceFloorHfBps?: number = 11250;
 
   @ApiPropertyOptional({
+    description: 'Target HF in bps used to size rescue action amount',
+    minimum: 10000,
+    default: 14500,
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined ? 14500 : Number(value)))
+  @IsInt()
+  @Min(10000)
+  targetHfBps?: number = 14500;
+
+  @ApiPropertyOptional({
     description: 'Reserve cap in bps (portion protected from withdrawal)',
     minimum: 0,
     maximum: 10000,
