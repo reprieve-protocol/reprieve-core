@@ -123,8 +123,12 @@ const TX_GAS_LIMITS = {
 } as const;
 
 const DEMO_NATIVE_FAUCET_CAPS = {
-  'ethereum-sepolia': parseEther('0.0002'),
+  'ethereum-sepolia': parseEther('0.003'),
   'base-sepolia': parseEther('0.0001'),
+} as const;
+const DEMO_BOOTSTRAP_NATIVE_BALANCE_TARGETS = {
+  'ethereum-sepolia': parseEther('0.003'),
+  'base-sepolia': parseEther('0.001'),
 } as const;
 const DEMO_TARGET_ETH_COMPOUND_HF = '1.7';
 const DEMO_TARGET_BASE_COMPOUND_HF = '1.2';
@@ -552,6 +556,27 @@ export class DemoWalletsService {
       );
 
       const txs: Array<Record<string, unknown>> = [];
+
+      this.logger.log(`[bootstrap] runId=${runId} step=bootstrap-native-fund start`);
+      await this.ensureNativeBalance(
+        ethContext,
+        demoWalletAddress,
+        this.getBootstrapNativeBalanceTarget('ethereum-sepolia'),
+        txs,
+        'bootstrap-native-fund-ethereum-sepolia',
+        0n,
+        this.getBootstrapNativeBalanceTarget('ethereum-sepolia'),
+      );
+      await this.ensureNativeBalance(
+        baseContext,
+        demoWalletAddress,
+        this.getBootstrapNativeBalanceTarget('base-sepolia'),
+        txs,
+        'bootstrap-native-fund-base-sepolia',
+        0n,
+        this.getBootstrapNativeBalanceTarget('base-sepolia'),
+      );
+      this.logger.log(`[bootstrap] runId=${runId} step=bootstrap-native-fund done`);
 
       this.logger.log(`[bootstrap] runId=${runId} step=aave-source-supply start`);
       const ethAavePool = this.requireAddress(
@@ -1463,6 +1488,10 @@ export class DemoWalletsService {
 
   private getNativeFundingCap(chainKey: SupportedChainKey): bigint {
     return DEMO_NATIVE_FAUCET_CAPS[chainKey];
+  }
+
+  private getBootstrapNativeBalanceTarget(chainKey: SupportedChainKey): bigint {
+    return DEMO_BOOTSTRAP_NATIVE_BALANCE_TARGETS[chainKey];
   }
 
   private parseBigIntOrZero(value: string | null | undefined): bigint {
