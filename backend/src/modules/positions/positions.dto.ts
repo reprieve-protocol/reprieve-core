@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -13,6 +14,19 @@ import { Transform } from 'class-transformer';
 import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+
+const parseOptionalJsonObject = (value: unknown): Record<string, unknown> | undefined => {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    return JSON.parse(value) as Record<string, unknown>;
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+};
 
 export class AddressParamDto {
   @ApiProperty({
@@ -54,6 +68,48 @@ export class RiskSnapshotQueryDto {
   @Transform(({ value }) => (value === undefined ? 600 : Number(value)))
   @Min(1)
   maxAgeSec?: number = 600;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional what-if price overrides in wad, scoped by chain and asset address',
+    type: 'object',
+    example: {
+      'ethereum-sepolia': {
+        '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968': '1500000000000000000000',
+      },
+      'base-sepolia': {
+        '0xEDD391FDa28993287Df301485ABF72865dee5050': '1400000000000000000000',
+      },
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  whatIfPrices?: Record<string, Record<string, string>>;
+
+  @ApiPropertyOptional({
+    description: 'GET alias for what-if prices on Ethereum Sepolia',
+    type: 'object',
+    example: {
+      '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968': '1500000000000000000000',
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  'ethereum-sepolia'?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description: 'GET alias for what-if prices on Base Sepolia',
+    type: 'object',
+    example: {
+      '0xEDD391FDa28993287Df301485ABF72865dee5050': '1400000000000000000000',
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  'base-sepolia'?: Record<string, string>;
 }
 
 export class SimulateApiGuardDto {
@@ -191,4 +247,46 @@ export class SimulateApiGuardDto {
   @Transform(({ value }) => (value === undefined ? true : value === true || value === 'true'))
   @IsBoolean()
   allowCrossChain?: boolean = true;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional what-if price overrides in wad, scoped by chain and asset address',
+    type: 'object',
+    example: {
+      'ethereum-sepolia': {
+        '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968': '1500000000000000000000',
+      },
+      'base-sepolia': {
+        '0xEDD391FDa28993287Df301485ABF72865dee5050': '1400000000000000000000',
+      },
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  whatIfPrices?: Record<string, Record<string, string>>;
+
+  @ApiPropertyOptional({
+    description: 'GET alias for what-if prices on Ethereum Sepolia',
+    type: 'object',
+    example: {
+      '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968': '1500000000000000000000',
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  'ethereum-sepolia'?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    description: 'GET alias for what-if prices on Base Sepolia',
+    type: 'object',
+    example: {
+      '0xEDD391FDa28993287Df301485ABF72865dee5050': '1400000000000000000000',
+    },
+  })
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalJsonObject(value))
+  @IsObject()
+  'base-sepolia'?: Record<string, string>;
 }

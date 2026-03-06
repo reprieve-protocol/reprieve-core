@@ -18,6 +18,28 @@ import { PositionsService } from './positions.service';
 export class PositionsController {
   constructor(private readonly positionsService: PositionsService) {}
 
+  private mergeWhatIfAliases<T extends { whatIfPrices?: Record<string, Record<string, string>> }>(
+    input: T & {
+      'ethereum-sepolia'?: Record<string, string>;
+      'base-sepolia'?: Record<string, string>;
+    },
+  ): T {
+    const merged = {
+      ...(input.whatIfPrices ?? {}),
+    };
+    if (input['ethereum-sepolia']) {
+      merged['ethereum-sepolia'] = input['ethereum-sepolia'];
+    }
+    if (input['base-sepolia']) {
+      merged['base-sepolia'] = input['base-sepolia'];
+    }
+
+    return {
+      ...input,
+      whatIfPrices: Object.keys(merged).length > 0 ? merged : undefined,
+    };
+  }
+
   @ApiOperation({ summary: 'Read oracle price for an asset on a supported chain' })
   @Get('oracle-price')
   async getOraclePrice(@Query() query: OraclePriceQueryDto) {
@@ -54,7 +76,34 @@ export class PositionsController {
     @Param() params: AddressParamDto,
     @Query() query: RiskSnapshotQueryDto,
   ) {
-    return this.positionsService.getRiskSnapshot(params.address, query.maxAgeSec ?? 600);
+    const normalized = this.mergeWhatIfAliases(query);
+    return this.positionsService.getRiskSnapshot(
+      params.address,
+      normalized.maxAgeSec ?? 600,
+      normalized.whatIfPrices,
+    );
+  }
+
+  @ApiOperation({
+    summary:
+      'Get CRE-ready risk snapshot (cross-chain aggregated positions) with optional what-if prices',
+  })
+  @ApiParam({
+    name: 'address',
+    description: 'Wallet address',
+    example: '0x7FbBC4ABd42f91a6e3861D33a67DeC13558658b5',
+  })
+  @Post(':address/risk-snapshot')
+  async getRiskSnapshotPostAlias(
+    @Param() params: AddressParamDto,
+    @Body() body: RiskSnapshotQueryDto,
+  ) {
+    const normalized = this.mergeWhatIfAliases(body);
+    return this.positionsService.getRiskSnapshot(
+      params.address,
+      normalized.maxAgeSec ?? 600,
+      normalized.whatIfPrices,
+    );
   }
 
   @ApiOperation({
@@ -70,7 +119,10 @@ export class PositionsController {
     @Param() params: AddressParamDto,
     @Query() query: SimulateApiGuardDto,
   ) {
-    return this.positionsService.simulateApiGuardDecision(params.address, query ?? {});
+    return this.positionsService.simulateApiGuardDecision(
+      params.address,
+      this.mergeWhatIfAliases(query ?? {}),
+    );
   }
 
   @ApiOperation({
@@ -87,6 +139,9 @@ export class PositionsController {
     @Param() params: AddressParamDto,
     @Body() body?: SimulateApiGuardDto,
   ) {
-    return this.positionsService.simulateApiGuardDecision(params.address, body ?? {});
+    return this.positionsService.simulateApiGuardDecision(
+      params.address,
+      this.mergeWhatIfAliases(body ?? {}),
+    );
   }
 }

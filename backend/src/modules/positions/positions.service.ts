@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs';
-import { Interface, ZeroAddress } from 'ethers';
+import { Interface, ZeroAddress, isAddress } from 'ethers';
 import { In, Not, Repository } from 'typeorm';
 import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 import { ChainRegistryService } from '../chains/chain-registry.service';
@@ -71,6 +71,17 @@ interface FlatPosition {
   chainId: number;
   chainKey: string;
   position: SimPosition;
+}
+
+interface NormalizedWhatIfPrices {
+  byChainAssetKey: Map<string, bigint>;
+  applied: Array<{
+    chainKey: SupportedChainKey;
+    chainId: number;
+    asset: string;
+    priceWad: string;
+    priceUsd: string;
+  }>;
 }
 
 @Injectable()
@@ -268,6 +279,7 @@ export class PositionsService {
   async getRiskSnapshot(
     userAddress: string,
     maxAgeSec = 600,
+    whatIfPrices?: Record<string, Record<string, string>>,
   ): Promise<{
     user: string;
     generatedAt: string;
@@ -300,9 +312,19 @@ export class PositionsService {
       syncedAt: string;
       collateralPriceWad: string | null;
       debtPriceWad: string | null;
+      collateralPriceSource: string;
+      debtPriceSource: string;
+    }>;
+    whatIfApplied: Array<{
+      chainKey: SupportedChainKey;
+      chainId: number;
+      asset: string;
+      priceWad: string;
+      priceUsd: string;
     }>;
   }> {
     const normalizedUser = userAddress.toLowerCase();
+    const normalizedWhatIfPrices = this.normalizeWhatIfPrices(whatIfPrices);
     const positions = await this.positionSnapshotRepository.find({
       where: { userAddress: normalizedUser },
       order: { syncedAt: 'DESC' },
@@ -370,6 +392,14 @@ export class PositionsService {
         let collateralPriceWad: bigint | null = null;
         let debtPriceWad: bigint | null = null;
         let healthFactorWad = position.healthFactorWad;
+        let collateralPriceSource = 'unavailable';
+        let debtPriceSource = 'unavailable';
+        const overriddenCollateralPriceWad = normalizedWhatIfPrices.byChainAssetKey.get(
+          this.whatIfPriceKey(position.chainId, collateralAsset),
+        );
+        const overriddenDebtPriceWad = normalizedWhatIfPrices.byChainAssetKey.get(
+          this.whatIfPriceKey(position.chainId, debtAsset),
+        );
 
         if (chain && meta && meta.oracleAddress !== ZeroAddress.toLowerCase()) {
           try {
@@ -390,20 +420,32 @@ export class PositionsService {
               `${position.chainId}:debt:${debtAsset}`,
               debtDecimals,
             );
-            collateralPriceWad = await this.readOraclePriceWad(
-              chainConfig.rpcUrl,
-              meta.oracleAddress,
-              collateralAsset,
-              priceCache,
-              `${position.chainId}:oracle:${meta.oracleAddress}:${collateralAsset}`,
-            );
-            debtPriceWad = await this.readOraclePriceWad(
-              chainConfig.rpcUrl,
-              meta.oracleAddress,
-              debtAsset,
-              priceCache,
-              `${position.chainId}:oracle:${meta.oracleAddress}:${debtAsset}`,
-            );
+            if (overriddenCollateralPriceWad !== undefined) {
+              collateralPriceWad = overriddenCollateralPriceWad;
+              collateralPriceSource = 'what-if';
+            } else {
+              collateralPriceWad = await this.readOraclePriceWad(
+                chainConfig.rpcUrl,
+                meta.oracleAddress,
+                collateralAsset,
+                priceCache,
+                `${position.chainId}:oracle:${meta.oracleAddress}:${collateralAsset}`,
+              );
+              collateralPriceSource = 'oracle';
+            }
+            if (overriddenDebtPriceWad !== undefined) {
+              debtPriceWad = overriddenDebtPriceWad;
+              debtPriceSource = 'what-if';
+            } else {
+              debtPriceWad = await this.readOraclePriceWad(
+                chainConfig.rpcUrl,
+                meta.oracleAddress,
+                debtAsset,
+                priceCache,
+                `${position.chainId}:oracle:${meta.oracleAddress}:${debtAsset}`,
+              );
+              debtPriceSource = 'oracle';
+            }
 
             // Match CRE risk-v1 fallback semantics: missing LT defaults to 8000 bps.
             const liquidationThresholdBps = position.liquidationThresholdBps ?? 8000;
@@ -442,6 +484,8 @@ export class PositionsService {
           syncedAt: position.syncedAt.toISOString(),
           collateralPriceWad: collateralPriceWad?.toString() ?? null,
           debtPriceWad: debtPriceWad?.toString() ?? null,
+          collateralPriceSource,
+          debtPriceSource,
         };
       }),
     );
@@ -484,12 +528,20 @@ export class PositionsService {
     };
 
     for (const position of enrichedPositions) {
-      registerCanonicalPrice(
-        position.collateralAsset,
-        position.collateralPriceWad,
-        position.chainId,
-      );
-      registerCanonicalPrice(position.debtAsset, position.debtPriceWad, position.chainId);
+      if (position.collateralPriceSource !== 'what-if') {
+        registerCanonicalPrice(
+          position.collateralAsset,
+          position.collateralPriceWad,
+          position.chainId,
+        );
+      }
+      if (position.debtPriceSource !== 'what-if') {
+        registerCanonicalPrice(
+          position.debtAsset,
+          position.debtPriceWad,
+          position.chainId,
+        );
+      }
     }
 
     const normalizedPositions = enrichedPositions.map((position) => {
@@ -499,11 +551,15 @@ export class PositionsService {
         canonicalAssetMap.get(position.debtAsset) ?? position.debtAsset;
 
       const mappedCollateralPriceWad =
-        canonicalPriceByAsset.get(canonicalCollateral)?.priceWad ??
-        (position.collateralPriceWad ? BigInt(position.collateralPriceWad) : null);
+        position.collateralPriceSource === 'what-if'
+          ? (position.collateralPriceWad ? BigInt(position.collateralPriceWad) : null)
+          : (canonicalPriceByAsset.get(canonicalCollateral)?.priceWad ??
+            (position.collateralPriceWad ? BigInt(position.collateralPriceWad) : null));
       const mappedDebtPriceWad =
-        canonicalPriceByAsset.get(canonicalDebt)?.priceWad ??
-        (position.debtPriceWad ? BigInt(position.debtPriceWad) : null);
+        position.debtPriceSource === 'what-if'
+          ? (position.debtPriceWad ? BigInt(position.debtPriceWad) : null)
+          : (canonicalPriceByAsset.get(canonicalDebt)?.priceWad ??
+            (position.debtPriceWad ? BigInt(position.debtPriceWad) : null));
 
       let healthFactorWad = position.healthFactorWad;
       if (mappedCollateralPriceWad && mappedDebtPriceWad) {
@@ -541,6 +597,7 @@ export class PositionsService {
         indexerCursorBlock: chain.indexerCursorBlock,
       })),
       positions: normalizedPositions,
+      whatIfApplied: normalizedWhatIfPrices.applied,
     };
   }
 
@@ -562,7 +619,11 @@ export class PositionsService {
     const sourceAdapterOverride = dto.sourceAdapter?.toLowerCase();
     const targetAdapterOverride = dto.targetAdapter?.toLowerCase();
 
-    const snapshot = await this.getRiskSnapshot(userAddress, maxAgeSec);
+    const snapshot = await this.getRiskSnapshot(
+      userAddress,
+      maxAgeSec,
+      dto.whatIfPrices,
+    );
     const simPositions = snapshot.positions.map((position) =>
       this.toSimPosition(position),
     );
@@ -576,6 +637,7 @@ export class PositionsService {
           positionCount: 0,
           isStale: snapshot.isStale,
           latestAgeSec: snapshot.latestAgeSec,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -597,6 +659,7 @@ export class PositionsService {
           positionCount: simPositions.length,
           isStale: snapshot.isStale,
           latestAgeSec: snapshot.latestAgeSec,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -627,6 +690,7 @@ export class PositionsService {
           weakestHfWad: weakestHfWad.toString(),
           weakestHf: this.formatHf(weakestHfWad),
           weakestAdapter: weakest.label,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -645,6 +709,7 @@ export class PositionsService {
           requestedTargetAdapter: targetAdapterOverride,
           weakestAdapter: weakest.label,
           weakestHf: this.formatHf(weakestHfWad),
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -678,6 +743,7 @@ export class PositionsService {
           executionChainKey,
           weakestHf: this.formatHf(weakestHfWad),
           weakestAdapter: target.label,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -705,6 +771,7 @@ export class PositionsService {
         summary: {
           user: userAddress.toLowerCase(),
           executionChainKey,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -724,6 +791,7 @@ export class PositionsService {
           user: userAddress.toLowerCase(),
           sourceChain: source.chainKey,
           targetChain: target.chainKey,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -786,6 +854,7 @@ export class PositionsService {
           reserveSafeSource: reserveSafeSource.toString(),
           sourceHfSafeCap: sourceHfSafeCap.toString(),
           sourceFloorHfBps,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -801,6 +870,7 @@ export class PositionsService {
           actionAmount: actionAmount.toString(),
           actionUsd: this.wadToFixed(actionUsdWad, 6),
           minActionUsd,
+          whatIfApplied: snapshot.whatIfApplied,
         },
       };
     }
@@ -842,6 +912,7 @@ export class PositionsService {
         sourceHfSafeCap: sourceHfSafeCap.toString(),
         actionUsd: actionUsdWad.toString(),
         executionChainKey,
+        whatIfApplied: snapshot.whatIfApplied,
       },
     };
   }
@@ -956,6 +1027,66 @@ export class PositionsService {
     );
     const raw = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(raw) as ChainContractsConfig;
+  }
+
+  private normalizeWhatIfPrices(
+    whatIfPrices?: Record<string, Record<string, string>>,
+  ): NormalizedWhatIfPrices {
+    const byChainAssetKey = new Map<string, bigint>();
+    const applied: NormalizedWhatIfPrices['applied'] = [];
+
+    if (!whatIfPrices) {
+      return { byChainAssetKey, applied };
+    }
+
+    for (const [rawChainKey, assetMap] of Object.entries(whatIfPrices)) {
+      if (!SUPPORTED_CHAIN_KEYS.includes(rawChainKey as SupportedChainKey)) {
+        throw new BadRequestException(`Unsupported what-if chain key: ${rawChainKey}`);
+      }
+      if (!assetMap || typeof assetMap !== 'object' || Array.isArray(assetMap)) {
+        throw new BadRequestException(
+          `Invalid what-if price map for chain ${rawChainKey}: expected object`,
+        );
+      }
+
+      const chainKey = rawChainKey as SupportedChainKey;
+      const chain = this.chainRegistryService.getByKey(chainKey);
+      for (const [rawAsset, rawPriceWad] of Object.entries(assetMap)) {
+        if (!isAddress(rawAsset)) {
+          throw new BadRequestException(
+            `Invalid what-if asset address for chain ${chainKey}: ${rawAsset}`,
+          );
+        }
+        if (typeof rawPriceWad !== 'string' || !/^\d+$/.test(rawPriceWad)) {
+          throw new BadRequestException(
+            `Invalid what-if price wad for ${chainKey}:${rawAsset}`,
+          );
+        }
+
+        const priceWad = BigInt(rawPriceWad);
+        if (priceWad <= 0n) {
+          throw new BadRequestException(
+            `What-if price must be positive for ${chainKey}:${rawAsset}`,
+          );
+        }
+
+        const asset = rawAsset.toLowerCase();
+        byChainAssetKey.set(this.whatIfPriceKey(chain.chainId, asset), priceWad);
+        applied.push({
+          chainKey,
+          chainId: chain.chainId,
+          asset,
+          priceWad: priceWad.toString(),
+          priceUsd: this.wadToFixed(priceWad, 8),
+        });
+      }
+    }
+
+    return { byChainAssetKey, applied };
+  }
+
+  private whatIfPriceKey(chainId: number, asset: string): string {
+    return `${String(chainId)}:${asset.toLowerCase()}`;
   }
 
   private async ethCall(
