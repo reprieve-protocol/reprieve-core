@@ -55,7 +55,8 @@
     "defaultMode": "REPAY",
     "allowCrossChain": true,
     "reserveCapBps": 4000,
-    "minActionUsd": 10
+    "minActionUsd": 10,
+    "targetHfBps": 14500
   },
   "crossChain": {
     "sourceChainSelector": "16015286601757825753",

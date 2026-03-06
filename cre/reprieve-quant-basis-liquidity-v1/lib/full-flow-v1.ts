@@ -530,9 +530,17 @@ export const runChainlinkApiGuardFlow = (
     });
   }
 
+  const planningTargetHfBps = Math.max(
+    10000,
+    Math.trunc(
+      asNumber(body.targetHfBps) ??
+        config.rescue.targetHfBps ??
+        config.thresholds.earlyWarningHfBps
+    )
+  );
   const desiredAmount =
     asBigInt(body.transferAmount) ??
-    estimateNeededAction(mode, target, config.thresholds.earlyWarningHfBps, getPriceWad, getDecimals);
+    estimateNeededAction(mode, target, planningTargetHfBps, getPriceWad, getDecimals);
   const reserveSafeSource = (source.availableCollateral * BigInt(10000 - config.rescue.reserveCapBps)) / BPS_DENOM;
   let sourceHfSafeCap = source.availableCollateral;
 
@@ -591,6 +599,7 @@ export const runChainlinkApiGuardFlow = (
       reserveSafeSource: reserveSafeSource.toString(),
       sourceHfSafeCap: sourceHfSafeCap.toString(),
       sourceFloorHfBps,
+      targetHfBps: planningTargetHfBps,
       ...guard.metadata,
     });
   }
@@ -611,6 +620,7 @@ export const runChainlinkApiGuardFlow = (
           actionAmount: actionAmount.toString(),
           actionUsd: wadToFixed(actionUsdWad, 6),
           minActionUsd,
+          targetHfBps: planningTargetHfBps,
           ...guard.metadata,
         }
       );
@@ -660,6 +670,7 @@ export const runChainlinkApiGuardFlow = (
         runMode,
         rescueMode: mode,
         plannedCrossChain: useCrossChain,
+        targetHfBps: planningTargetHfBps,
         planPreview: describePlan(step, mode, execId),
       },
     });
@@ -767,6 +778,7 @@ export const runChainlinkApiGuardFlow = (
       sourceAsset: step.collateralAsset,
       targetAsset: defaultTargetAsset,
       amount: actionAmount.toString(),
+      targetHfBps: planningTargetHfBps,
       sourceFloorHfBps,
       sourceHfSafeCap: sourceHfSafeCap.toString(),
       crossChain: useCrossChain,

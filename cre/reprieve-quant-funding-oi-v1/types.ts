@@ -69,6 +69,7 @@ export interface RescuePolicyConfig {
   allowCrossChain: boolean;
   reserveCapBps: number;
   minActionUsd: number;
+  targetHfBps?: number;
 }
 
 export interface CrossChainConfig {
@@ -389,6 +390,10 @@ const parseRescuePolicy = (value: unknown): RescuePolicyConfig => {
       value.minActionUsd === undefined
         ? 0
         : requireNumber(value.minActionUsd, "rescue.minActionUsd", 0),
+    targetHfBps:
+      value.targetHfBps === undefined
+        ? undefined
+        : requireNumber(value.targetHfBps, "rescue.targetHfBps", 10000),
   };
 };
 
