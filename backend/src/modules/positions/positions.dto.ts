@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -9,7 +10,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { SupportedChainKey } from '../../config/chains.config';
+import { SUPPORTED_CHAIN_KEYS, SupportedChainKey } from '../../config/chains.config';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
@@ -21,6 +22,25 @@ export class AddressParamDto {
   @IsString()
   @Matches(ADDRESS_REGEX)
   address!: string;
+}
+
+export class OraclePriceQueryDto {
+  @ApiProperty({
+    description: 'Supported chain key',
+    enum: ['ethereum-sepolia', 'base-sepolia'],
+    example: 'ethereum-sepolia',
+  })
+  @IsString()
+  @IsEnum(SUPPORTED_CHAIN_KEYS)
+  chainKey!: SupportedChainKey;
+
+  @ApiProperty({
+    description: 'Asset token address',
+    example: '0x4c87EA388AdE37f6A556146B4fF6ff2A12192968',
+  })
+  @IsString()
+  @Matches(ADDRESS_REGEX)
+  asset!: string;
 }
 
 export class RiskSnapshotQueryDto {

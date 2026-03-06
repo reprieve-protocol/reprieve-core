@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'node:fs';
@@ -206,6 +206,62 @@ export class PositionsService {
       user: userAddress.toLowerCase(),
       syncedAt: newestSyncedAt ? newestSyncedAt.toISOString() : null,
       positions,
+    };
+  }
+
+  async getOraclePrice(
+    chainKey: SupportedChainKey,
+    assetAddress: string,
+  ): Promise<{
+    chainKey: SupportedChainKey;
+    chainId: number;
+    oracleAddress: string;
+    asset: string;
+    priceWad: string;
+    priceUsd: string;
+    updatedAt: string;
+    updatedAtIso: string | null;
+  }> {
+    const chain = this.chainRegistryService.getByKey(chainKey);
+    const contractsConfig = this.loadChainContractsConfig(chainKey);
+    const oracleAddress = (
+      contractsConfig.contracts?.MockPriceOracle ?? ZeroAddress
+    ).toLowerCase();
+    if (oracleAddress === ZeroAddress.toLowerCase()) {
+      throw new BadRequestException(
+        `MockPriceOracle is not configured for chain ${chainKey}`,
+      );
+    }
+
+    const normalizedAsset = assetAddress.toLowerCase();
+    const calldata = this.oracleInterface.encodeFunctionData('getPrice', [
+      normalizedAsset,
+    ]);
+    const rawResult = await this.ethCall(chain.rpcUrl, oracleAddress, calldata);
+    const decoded = this.oracleInterface.decodeFunctionResult('getPrice', rawResult);
+    const priceWad = decoded[0] as bigint;
+    const updatedAt = decoded[1] as bigint;
+
+    let updatedAtIso: string | null = null;
+    if (updatedAt > 0n) {
+      const updatedAtMillis = Number(updatedAt) * 1000;
+      if (!Number.isSafeInteger(updatedAtMillis)) {
+        throw new BadRequestException(
+          `Oracle timestamp is too large to format safely for ${chainKey}:${normalizedAsset}`,
+        );
+      }
+      updatedAtIso = new Date(updatedAtMillis).toISOString();
+    }
+
+    return {
+      chainKey,
+      chainId: chain.chainId,
+      oracleAddress,
+      asset: normalizedAsset,
+      priceWad: priceWad.toString(),
+      priceUsd: this.wadToFixed(priceWad, 8),
+      updatedAt: updatedAt.toString(),
+      updatedAtIso,
     };
   }
 

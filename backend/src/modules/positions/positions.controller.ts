@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import {
   AddressParamDto,
+  OraclePriceQueryDto,
   RiskSnapshotQueryDto,
   SimulateApiGuardDto,
 } from './positions.dto';
@@ -16,6 +17,12 @@ import { PositionsService } from './positions.service';
 @Controller('v1/positions')
 export class PositionsController {
   constructor(private readonly positionsService: PositionsService) {}
+
+  @ApiOperation({ summary: 'Read oracle price for an asset on a supported chain' })
+  @Get('oracle-price')
+  async getOraclePrice(@Query() query: OraclePriceQueryDto) {
+    return this.positionsService.getOraclePrice(query.chainKey, query.asset);
+  }
 
   @ApiOperation({ summary: 'Get latest known positions for a wallet address' })
   @ApiParam({
