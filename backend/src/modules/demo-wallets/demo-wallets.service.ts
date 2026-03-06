@@ -123,8 +123,8 @@ const TX_GAS_LIMITS = {
 } as const;
 
 const DEMO_NATIVE_FAUCET_CAPS = {
-  'ethereum-sepolia': parseEther('0.0001'),
-  'base-sepolia': parseEther('0.00001'),
+  'ethereum-sepolia': parseEther('0.0002'),
+  'base-sepolia': parseEther('0.0001'),
 } as const;
 const DEMO_TARGET_ETH_COMPOUND_HF = '1.7';
 const DEMO_TARGET_BASE_COMPOUND_HF = '1.2';

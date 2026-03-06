@@ -46,8 +46,8 @@ export class GenerateDemoWalletDto {
 export class FundDemoWalletDto {
   @ApiPropertyOptional({
     description: 'Target native ETH balance on Ethereum Sepolia',
-    example: '0.0001',
-    default: '0.0001',
+    example: '0.0002',
+    default: '0.0002',
   })
   @IsOptional()
   @IsString()
