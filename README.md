@@ -37,6 +37,78 @@ This repository contains:
 | Security posture | PoC | Trusted owner keys, managed demo wallets, no formal audit |
 | Production readiness | Not targeted | Operator and onboarding assumptions remain throughout relay, wallet management, and oracle systems |
 
+## Chainlink Usage
+
+This repo uses Chainlink in two ways:
+
+### 1. Chainlink Runtime Environment
+
+- CRE workflows live under `cre/`
+- each workflow uses `@chainlink/cre-sdk`
+- `ReprieveWorkflowReceiver` is the onchain report consumer
+- workflows are simulated with CRE CLI against Sepolia/Base Sepolia RPC targets from `cre/project.yaml`
+
+Key workflow entrypoints:
+- `cre/reprieve-chainlink-api-guard-v1/main.ts`
+- `cre/reprieve-quant-funding-oi-v1/main.ts`
+- `cre/reprieve-quant-basis-liquidity-v1/main.ts`
+
+### 2. Cross-Chain Rescue Messaging
+
+- Router contracts handle cross-chain message dispatch and delivery
+- `CCIPReceiver.sol` consumes destination messages
+- backend relay worker or `scripts/ops.sh cross-chain-rescue-relay ...` advances the destination leg
+
+## Deployed Contracts
+
+Current deployment summary sourced from `contracts/config/`.
+
+### Ethereum Sepolia
+
+| Contract | Address |
+|---|---|
+| Price Oracle | `0xf7FF29381Be343398e014cB00d48A1c4698BD224` |
+| Collateral Token (WETH) | `0x4c87EA388AdE37f6A556146B4fF6ff2A12192968` |
+| Debt Token (USDC) | `0x7C31b54EB6712B308cf27aA7e8d2012DcfA92E4E` |
+| Aave Pool | `0x9707e23823836DfC7d46866a107F7b0374c39703` |
+| Compound Market | `0x050E7a763Cb1C8071C0A2003F5Fda0d9d87a581b` |
+| Morpho Market | `0x669a53533817Edc2189612bc0b5af72eD38Bfff3` |
+| Aave Adapter | `0x9a2389d74e6318C67824339e37450437b4De7027` |
+| Compound Adapter | `0x571cf1d4fbeae893E02bA61Df5B0E9D5B7311dBa` |
+| Morpho Adapter | `0x2444d3079CB7e248BA35044250d4448f8Bb3Bc68` |
+| Adapter Registry | `0xCc06e00C429A70bedDB7D17c7c88f5511Ed4f16d` |
+| Rescue Log | `0xaB1eF61204443CfAfFA4D9A3593F7B0bC72d5C64` |
+| Rescue Escrow | `0x4334A2aBdBCCA93F329C2a958ef97E50CFF46049` |
+| Rescue Executor | `0x99B6e30b737F1D451B44F8369d3EC1809ab25262` |
+| CCIP Receiver | `0xD88Ca3501A08Fa70ef95415512b68C013aAdfd99` |
+| Health Monitor | `0xCf5B6d1B877e8df38BAbFE848e47A3c8ce36df79` |
+| Workflow Receiver | `0x860Cde8737998D6166340d485ad68f49B5d6C3e9` |
+| CCIP Router | `0xf8Ca6FCf3916D689F2158073806333f1FFB9e87e` |
+| LINK Token | `0x779877A7B0D9E8603169DdbD7836e478b4624789` |
+
+### Base Sepolia
+
+| Contract | Address |
+|---|---|
+| Price Oracle | `0x1CB5b9fc0F24D26366aA8F2aeFE875fD356f4616` |
+| Collateral Token (WETH) | `0xEDD391FDa28993287Df301485ABF72865dee5050` |
+| Debt Token (USDC) | `0x7570E1f97e0831E929B9525858586E274F5C9cf2` |
+| Aave Pool | `0xAAe3161d6D8E859aa13A1716886e030D14b20e15` |
+| Compound Market | `0xcD8D9dB3C927d4382d21b9113162ec5f80a6AeB1` |
+| Morpho Market | `0x7dF1CE47d9Dc3fC2eC75554706a660c1C0B07d03` |
+| Aave Adapter | `0x3Ce2A7601623bdB7aF942eD07BF185b5a8CF0cd9` |
+| Compound Adapter | `0xA10dD58EcAdf3fd071a23415e55FD23287d684bc` |
+| Morpho Adapter | `0x325fADdd2B7F0B3f7ab8E5113F31a4C208669f44` |
+| Adapter Registry | `0x587fBE3fEccbB6300E8AB732093B31a9B503620B` |
+| Rescue Log | `0x4f20e421203604D3A337f20807418A933124dE33` |
+| Rescue Escrow | `0x688426E9ac2129b9AE815C0f4E36aDa65a31AFA0` |
+| Rescue Executor | `0xd1581fe379Be0F9E0aC835Aca2B02959C18B5e43` |
+| CCIP Receiver | `0xF03b518f9CF3F81B2A0BE048f2d73a6b624d2C27` |
+| Health Monitor | `0xC4219Be02e4d7DEc56424162E9f535268E14B263` |
+| Workflow Receiver | `0x02979441a188DfDe7C1f6d45f3F0589dFEc15BE7` |
+| CCIP Router | `0xAE39156C5FCBAB6E5CfaBbdaDD3207aCd2BAdeac` |
+| LINK Token | `0xE4aB69C077896252FAFBD49EFD26B5D171A32410` |
+
 ## Architecture Overview
 
 - Lending positions live on Ethereum Sepolia and Base Sepolia.
@@ -179,28 +251,6 @@ Important backend features:
 - demo wallet portfolio, funding, and bootstrap APIs
 - CRE log storage/query API
 - `contracts-config/` copied into backend so it can deploy independently of the contracts workspace
-
-## Chainlink Usage
-
-This repo uses Chainlink in two ways:
-
-### 1. Chainlink Runtime Environment
-
-- CRE workflows live under `cre/`
-- each workflow uses `@chainlink/cre-sdk`
-- `ReprieveWorkflowReceiver` is the onchain report consumer
-- workflows are simulated with CRE CLI against Sepolia/Base Sepolia RPC targets from `cre/project.yaml`
-
-Key workflow entrypoints:
-- `cre/reprieve-chainlink-api-guard-v1/main.ts`
-- `cre/reprieve-quant-funding-oi-v1/main.ts`
-- `cre/reprieve-quant-basis-liquidity-v1/main.ts`
-
-### 2. Cross-Chain Rescue Messaging
-
-- Router contracts handle cross-chain message dispatch and delivery
-- `CCIPReceiver.sol` consumes destination messages
-- backend relay worker or `scripts/ops.sh cross-chain-rescue-relay ...` advances the destination leg
 
 ## Repository Structure
 
